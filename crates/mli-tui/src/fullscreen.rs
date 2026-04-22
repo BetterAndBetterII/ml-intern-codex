@@ -23,6 +23,7 @@ use ratatui::{
     text::{Line, Text},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::app::{
     AppClient, ApprovalQuestion, ApprovalQuestionPayload, ApprovalResolutionOutcome, TranscriptApp,
@@ -1191,7 +1192,7 @@ fn render_status_toast(frame: &mut Frame, area: Rect, toast: Option<&StatusToast
     let lines = wrap_text(&toast.text, max_width.saturating_sub(2));
     let content_width = lines
         .iter()
-        .map(|line| line.chars().count())
+        .map(|line| display_width(line))
         .max()
         .unwrap_or(0)
         .min(max_width);
@@ -1365,6 +1366,7 @@ fn render_picker_items(frame: &mut Frame, area: Rect, items: &[String], selected
     if area.width == 0 || area.height == 0 {
         return;
     }
+    let item_width = area.width.saturating_sub(2) as usize;
     let visible = usize::min(area.height as usize, items.len());
     let start = selected
         .saturating_sub(visible.saturating_sub(1))
@@ -1377,7 +1379,7 @@ fn render_picker_items(frame: &mut Frame, area: Rect, items: &[String], selected
         .map(|(offset, item)| {
             let row = start + offset;
             let marker = if row == selected { '>' } else { ' ' };
-            format!("{marker} {item}")
+            format!("{marker} {}", truncate_display_width(item, item_width))
         })
         .collect::<Vec<_>>();
     render_lines(frame, area, &lines);
@@ -1788,34 +1790,105 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
             lines.push(String::new());
             continue;
         }
-        let chars = raw_line.chars().collect::<Vec<_>>();
-        let mut start = 0;
-        while start < chars.len() {
-            let max_end = usize::min(start + width, chars.len());
-            let mut end = max_end;
-            if max_end < chars.len()
-                && let Some(space) = chars[start..max_end]
-                    .iter()
-                    .rposition(|ch| ch.is_whitespace())
-                    .filter(|space| *space > 0)
-            {
-                end = start + space;
-            }
-            if end == start {
-                end = max_end;
-            }
-            let segment = chars[start..end].iter().collect::<String>();
-            lines.push(segment.trim_end().to_owned());
-            start = end;
-            while start < chars.len() && chars[start].is_whitespace() {
-                start += 1;
-            }
-        }
+        lines.extend(wrap_line_by_display_width(raw_line, width));
     }
     if lines.is_empty() {
         lines.push(String::new());
     }
     lines
+}
+
+fn wrap_line_by_display_width(line: &str, width: usize) -> Vec<String> {
+    if line.is_empty() {
+        return vec![String::new()];
+    }
+
+    let indexed_chars = line.char_indices().collect::<Vec<_>>();
+    let mut segments = Vec::new();
+    let mut start = 0;
+    let mut current_width: usize = 0;
+    let mut last_break = None;
+    let mut index = 0;
+
+    while index < indexed_chars.len() {
+        let (byte_index, ch) = indexed_chars[index];
+        let ch_width = char_display_width(ch);
+        let next_width = current_width.saturating_add(ch_width);
+        if current_width > 0 && next_width > width {
+            if let Some((break_index, resume_index)) =
+                last_break.filter(|(break_index, _)| *break_index > start)
+            {
+                segments.push(line[start..break_index].trim_end().to_owned());
+                start = resume_index;
+                current_width = display_width(&line[start..byte_index]);
+                last_break = None;
+                continue;
+            }
+            segments.push(line[start..byte_index].trim_end().to_owned());
+            start = byte_index;
+            current_width = 0;
+            last_break = None;
+            continue;
+        }
+        current_width = next_width;
+        if ch.is_whitespace() {
+            last_break = Some((byte_index, skip_leading_whitespace(line, byte_index)));
+        }
+        index += 1;
+    }
+
+    segments.push(line[start..].trim_end().to_owned());
+    segments
+}
+
+fn skip_leading_whitespace(line: &str, mut byte_index: usize) -> usize {
+    while byte_index < line.len() {
+        let Some(ch) = line[byte_index..].chars().next() else {
+            break;
+        };
+        if !ch.is_whitespace() {
+            break;
+        }
+        byte_index += ch.len_utf8();
+    }
+    byte_index
+}
+
+fn char_display_width(ch: char) -> usize {
+    UnicodeWidthChar::width(ch).unwrap_or(0)
+}
+
+fn display_width(text: &str) -> usize {
+    UnicodeWidthStr::width(text)
+}
+
+fn truncate_display_width(text: &str, max_width: usize) -> String {
+    if max_width == 0 || display_width(text) <= max_width {
+        return text.to_owned();
+    }
+    if max_width == 1 {
+        return "…".to_owned();
+    }
+
+    let target_width = max_width.saturating_sub(1);
+    let mut kept = String::new();
+    let mut width: usize = 0;
+    for ch in text.chars() {
+        let ch_width = char_display_width(ch);
+        if width > 0 && width.saturating_add(ch_width) > target_width {
+            break;
+        }
+        if width == 0 && ch_width > target_width {
+            break;
+        }
+        kept.push(ch);
+        width = width.saturating_add(ch_width);
+        if width >= target_width {
+            break;
+        }
+    }
+    kept.push('…');
+    kept
 }
 
 fn filtered_skills(state: &SkillPickerState) -> Vec<SkillDescriptor> {
@@ -2085,6 +2158,18 @@ mod tests {
             wrapped,
             vec!["alpha".to_owned(), "beta".to_owned(), "gamma".to_owned()]
         );
+    }
+
+    #[test]
+    fn wrap_text_counts_wide_characters_by_display_width() {
+        let wrapped = wrap_text("你好a", 3);
+        assert_eq!(wrapped, vec!["你".to_owned(), "好a".to_owned()]);
+    }
+
+    #[test]
+    fn truncate_display_width_preserves_column_budget_for_wide_text() {
+        assert_eq!(truncate_display_width("你好ab", 4), "你…");
+        assert_eq!(truncate_display_width("abcde", 4), "abc…");
     }
 
     #[test]
