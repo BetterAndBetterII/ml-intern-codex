@@ -23,7 +23,8 @@ use ratatui::{
     text::{Line, Text},
     widgets::{Block, Borders, Clear, Paragraph},
 };
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
 
 use crate::app::{
     AppClient, ApprovalQuestion, ApprovalQuestionPayload, ApprovalResolutionOutcome, TranscriptApp,
@@ -78,12 +79,12 @@ impl FullscreenApp {
 
     fn run(&mut self) -> Result<()> {
         while !self.should_quit {
-            if let Some(notification) = self.core.poll_notification()? {
-                self.handle_server_notification(notification)?;
-                continue;
-            }
             if let Some(reason) = self.pending_redraw.take() {
                 self.render(reason)?;
+                continue;
+            }
+            if let Some(notification) = self.core.poll_notification()? {
+                self.handle_server_notification(notification)?;
                 continue;
             }
             if self.last_tick.elapsed() >= TICK_INTERVAL {
@@ -1847,17 +1848,24 @@ fn wrap_line_by_display_width(line: &str, width: usize) -> Vec<String> {
         return vec![String::new()];
     }
 
-    let indexed_chars = line.char_indices().collect::<Vec<_>>();
+    let indexed_graphemes = UnicodeSegmentation::grapheme_indices(line, true).collect::<Vec<_>>();
     let mut segments = Vec::new();
     let mut start = 0;
     let mut current_width: usize = 0;
     let mut last_break = None;
     let mut index = 0;
 
-    while index < indexed_chars.len() {
-        let (byte_index, ch) = indexed_chars[index];
-        let ch_width = char_display_width(ch);
-        let next_width = current_width.saturating_add(ch_width);
+    while index < indexed_graphemes.len() {
+        let (byte_index, grapheme) = indexed_graphemes[index];
+        let grapheme_width = display_width(grapheme);
+        if current_width == 0 && grapheme_width > width {
+            segments.push(truncate_display_width(grapheme, width));
+            start = byte_index + grapheme.len();
+            last_break = None;
+            index += 1;
+            continue;
+        }
+        let next_width = current_width.saturating_add(grapheme_width);
         if current_width > 0 && next_width > width {
             if let Some((break_index, resume_index)) =
                 last_break.filter(|(break_index, _)| *break_index > start)
@@ -1875,13 +1883,18 @@ fn wrap_line_by_display_width(line: &str, width: usize) -> Vec<String> {
             continue;
         }
         current_width = next_width;
-        if ch.is_whitespace() {
+        if grapheme.chars().all(char::is_whitespace) {
             last_break = Some((byte_index, skip_leading_whitespace(line, byte_index)));
         }
         index += 1;
     }
 
-    segments.push(line[start..].trim_end().to_owned());
+    if start < line.len() {
+        segments.push(line[start..].trim_end().to_owned());
+    }
+    if segments.is_empty() {
+        segments.push(String::new());
+    }
     segments
 }
 
@@ -1896,10 +1909,6 @@ fn skip_leading_whitespace(line: &str, mut byte_index: usize) -> usize {
         byte_index += ch.len_utf8();
     }
     byte_index
-}
-
-fn char_display_width(ch: char) -> usize {
-    UnicodeWidthChar::width(ch).unwrap_or(0)
 }
 
 fn display_width(text: &str) -> usize {
@@ -1917,16 +1926,16 @@ fn truncate_display_width(text: &str, max_width: usize) -> String {
     let target_width = max_width.saturating_sub(1);
     let mut kept = String::new();
     let mut width: usize = 0;
-    for ch in text.chars() {
-        let ch_width = char_display_width(ch);
-        if width > 0 && width.saturating_add(ch_width) > target_width {
+    for grapheme in UnicodeSegmentation::graphemes(text, true) {
+        let grapheme_width = display_width(grapheme);
+        if width > 0 && width.saturating_add(grapheme_width) > target_width {
             break;
         }
-        if width == 0 && ch_width > target_width {
+        if width == 0 && grapheme_width > target_width {
             break;
         }
-        kept.push(ch);
-        width = width.saturating_add(ch_width);
+        kept.push_str(grapheme);
+        width = width.saturating_add(grapheme_width);
         if width >= target_width {
             break;
         }
@@ -2211,6 +2220,19 @@ mod tests {
     }
 
     #[test]
+    fn wrap_text_preserves_emoji_grapheme_clusters() {
+        let wrapped = wrap_text("👩‍💻a", 2);
+        assert_eq!(wrapped, vec!["👩‍💻".to_owned(), "a".to_owned()]);
+    }
+
+    #[test]
+    fn wrap_text_clips_wide_grapheme_when_column_budget_is_too_small() {
+        let wrapped = wrap_text("你a", 1);
+        assert_eq!(wrapped, vec!["…".to_owned(), "a".to_owned()]);
+        assert!(wrapped.iter().all(|line| display_width(line) <= 1));
+    }
+
+    #[test]
     fn transcript_lines_keep_continuation_rows_within_width_budget() {
         let mut state = sample_state();
         state.transcript.history = vec![HistoryCellModel::AssistantMessage(AssistantMessageCell {
@@ -2229,6 +2251,11 @@ mod tests {
     fn truncate_display_width_preserves_column_budget_for_wide_text() {
         assert_eq!(truncate_display_width("你好ab", 4), "你…");
         assert_eq!(truncate_display_width("abcde", 4), "abc…");
+    }
+
+    #[test]
+    fn truncate_display_width_preserves_grapheme_clusters() {
+        assert_eq!(truncate_display_width("👩‍💻abc", 3), "👩‍💻…");
     }
 
     #[test]
