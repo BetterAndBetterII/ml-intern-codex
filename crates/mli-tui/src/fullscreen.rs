@@ -27,7 +27,8 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::app::{
     AppClient, ApprovalQuestion, ApprovalQuestionPayload, ApprovalResolutionOutcome, TranscriptApp,
-    describe_skill, filter_artifacts, filter_skills, filter_threads, preferred_artifact_file_index,
+    describe_skill, filter_artifacts, filter_skills, filter_threads, parse_leading_skill_token,
+    preferred_artifact_file_index, selected_skill_label,
 };
 use crate::renderer::render_history_cell;
 
@@ -336,8 +337,9 @@ impl FullscreenApp {
                 let filtered = filtered_skills(state);
                 if let Some(skill) = filtered.get(state.selected).cloned() {
                     self.core.set_selected_skill(Some(skill.clone()));
+                    apply_skill_mention_to_composer(self.core.state_mut(), &skill);
                     self.core
-                        .push_status(&format!("Selected skill: {}", describe_skill(&skill)));
+                        .push_status(&format!("Selected skill: {}", selected_skill_label(&skill)));
                     return Ok(false);
                 }
             }
@@ -1177,7 +1179,7 @@ fn render_composer(
         _ => "Enter submit, $ skill picker, /threads /skills /artifacts /help /quit",
     };
     let selected = selected_skill
-        .map(|skill| format!("selected skill: {}", describe_skill(skill)))
+        .map(|skill| format!("selected skill: {}", selected_skill_label(skill)))
         .unwrap_or_else(|| "selected skill: none".to_owned());
     let composer = composer_with_cursor(&state.composer.buffer, state.composer.cursor);
     let lines = vec![hint.to_owned(), selected, composer];
@@ -1806,6 +1808,22 @@ fn delete_composer_forward(state: &mut AppState) {
     state.composer.buffer.replace_range(cursor..remove_end, "");
 }
 
+fn apply_skill_mention_to_composer(state: &mut AppState, skill: &SkillDescriptor) {
+    state.composer.buffer = composer_buffer_with_skill_mention(&state.composer.buffer, &skill.name);
+    state.composer.cursor = state.composer.buffer.len();
+}
+
+fn composer_buffer_with_skill_mention(buffer: &str, skill_name: &str) -> String {
+    let remainder = parse_leading_skill_token(buffer)
+        .map(|(_, remainder)| remainder)
+        .unwrap_or_else(|| buffer.trim().to_owned());
+    if remainder.is_empty() {
+        format!("${skill_name} ")
+    } else {
+        format!("${skill_name} {remainder}")
+    }
+}
+
 fn wrap_text(text: &str, width: usize) -> Vec<String> {
     if width == 0 {
         return Vec::new();
@@ -2324,6 +2342,51 @@ mod tests {
             composer_with_cursor(&state.composer.buffer, state.composer.cursor),
             "你|好"
         );
+    }
+
+    #[test]
+    fn composer_buffer_with_skill_mention_adds_or_replaces_leading_token() {
+        assert_eq!(
+            composer_buffer_with_skill_mention("", "ml-runtime-conventions"),
+            "$ml-runtime-conventions "
+        );
+        assert_eq!(
+            composer_buffer_with_skill_mention(
+                "inspect repo conventions",
+                "ml-runtime-conventions"
+            ),
+            "$ml-runtime-conventions inspect repo conventions"
+        );
+        assert_eq!(
+            composer_buffer_with_skill_mention(
+                "$old-skill inspect repo conventions",
+                "ml-runtime-conventions"
+            ),
+            "$ml-runtime-conventions inspect repo conventions"
+        );
+    }
+
+    #[test]
+    fn apply_skill_mention_to_composer_moves_cursor_to_inserted_token() {
+        let mut state = sample_state();
+        state.composer.buffer = "inspect repo conventions".to_owned();
+        state.composer.cursor = 3;
+        let skill = SkillDescriptor {
+            name: "ml-runtime-conventions".to_owned(),
+            description: "Inspect repo conventions".to_owned(),
+            short_description: None,
+            path: PathBuf::from("skills/system/ml-runtime-conventions/SKILL.md"),
+            scope: mli_types::SkillScope::Bundled,
+            enabled: true,
+        };
+
+        apply_skill_mention_to_composer(&mut state, &skill);
+
+        assert_eq!(
+            state.composer.buffer,
+            "$ml-runtime-conventions inspect repo conventions"
+        );
+        assert_eq!(state.composer.cursor, state.composer.buffer.len());
     }
 
     #[test]

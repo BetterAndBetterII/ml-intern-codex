@@ -612,6 +612,7 @@ fn ml_intern_fullscreen_skill_picker_overlay_smoke_selects_skill_and_forwards_tu
     assert!(output.output.contains("Esc close, Enter select"));
     assert!(output.output.contains("ml-runtime-conventions"));
     assert!(output.output.contains("Selected skill:"));
+    assert!(output.output.contains("$ml-runtime-conventions"));
     assert!(output.output.contains("assistant> skill payload captured"));
 
     let capture_lines = env.read_capture_lines();
@@ -2117,7 +2118,7 @@ fn run_ml_intern_fullscreen_skill_picker_with_pty(env: &TestEnv, prompt: &str) -
                 "fullscreen skill picker filtered",
             ),
             PtyInputStep::new(
-                "Selected skill:",
+                "$ml-runtime-conventions",
                 format!("{prompt}\r"),
                 "fullscreen skill selected",
             ),
