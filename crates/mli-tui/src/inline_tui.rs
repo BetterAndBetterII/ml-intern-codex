@@ -6,6 +6,7 @@
 //! a compact bottom pane (composer + status + hints) lives in a small
 //! reserved viewport pinned at the bottom of the screen.
 
+use std::collections::VecDeque;
 use std::io;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -21,6 +22,8 @@ use ratatui::layout::Rect;
 
 use crate::app::{AppClient, TranscriptApp, selected_skill_label};
 use crate::bottom_pane::{self, BottomPaneProps};
+use crate::completion::{self, AcceptOutcome, Completion};
+use crate::exec_render;
 use crate::history_cell::render_cell;
 use crate::insert_history::insert_history_lines;
 use crate::markdown_stream::MarkdownStreamCollector;
@@ -28,6 +31,7 @@ use crate::overlay::{self, Overlay, OverlayOutcome};
 use crate::render::line_utils::prefix_lines;
 use crate::terminal_cleanup::clear_inline_viewport_for_exit;
 use crate::tui_session::{self, Terminal};
+use mli_types::SkillDescriptor;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Span;
 
@@ -61,6 +65,9 @@ struct InlineApp {
     prompt_history: Vec<String>,
     history_cursor: Option<usize>,
     history_draft: Option<String>,
+    completion: Option<Completion>,
+    skills_cache: Option<Vec<SkillDescriptor>>,
+    streaming_exec: Option<StreamingExecCtx>,
 }
 
 struct StreamingCtx {
@@ -68,6 +75,22 @@ struct StreamingCtx {
     cell_index: usize,
     text_len_seen: usize,
     first_line_emitted: bool,
+}
+
+/// Live-streaming context for an `ExecOutput { streaming: true }` tail cell.
+///
+/// The first [`exec_render::OUTPUT_KEEP_LINES`] output lines stream into the
+/// scrollback immediately so the user sees progress. Lines beyond that are
+/// accumulated in `tail_buffer` (capped at KEEP) and then flushed—along with
+/// a `… +N lines` ellipsis—when the exec cell transitions to `streaming:
+/// false`, mirroring Codex CLI's head/ellipsis/tail folding.
+struct StreamingExecCtx {
+    cell_index: usize,
+    header_emitted: bool,
+    text_len_seen: usize,
+    head_lines_pushed: usize,
+    tail_buffer: VecDeque<String>,
+    total_output_lines: usize,
 }
 
 impl InlineApp {
@@ -87,12 +110,48 @@ impl InlineApp {
             prompt_history: Vec::new(),
             history_cursor: None,
             history_draft: None,
+            completion: None,
+            skills_cache: None,
+            streaming_exec: None,
         };
         me.refresh_selected_skill_label();
         // Must size the viewport before the first history flush so wrap_width is correct.
         me.resize_viewport(terminal)?;
+        me.render_startup_banner(terminal)?;
         me.flush_new_history(terminal)?;
         Ok(me)
+    }
+
+    fn render_startup_banner(&mut self, terminal: &mut Terminal) -> Result<()> {
+        let screen = terminal.backend().size()?;
+        let width = terminal.viewport_area.width.max(screen.width);
+        if width == 0 {
+            return Ok(());
+        }
+        let cwd = self
+            .core
+            .state()
+            .runtime
+            .cwd
+            .clone()
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        let model = self
+            .core
+            .state()
+            .runtime
+            .codex_version
+            .clone()
+            .map(|v| format!("codex {v}"));
+        let lines = crate::startup_banner::build_startup_banner_lines(
+            width,
+            env!("CARGO_PKG_VERSION"),
+            &cwd,
+            model.as_deref(),
+        );
+        if !lines.is_empty() {
+            insert_history_lines(terminal, lines)?;
+        }
+        Ok(())
     }
 
     fn refresh_selected_skill_label(&mut self) {
@@ -107,7 +166,12 @@ impl InlineApp {
             while let Some(notification) = self.core.poll_notification()? {
                 self.apply_notification(notification)?;
             }
-            self.flush_new_history(terminal)?;
+            // Pause scrollback writes while an overlay covers most of the screen;
+            // otherwise `insert_history_lines` shifts content inside the
+            // scroll-region above and visually tears the overlay frame.
+            if self.overlay.is_none() {
+                self.flush_new_history(terminal)?;
+            }
             self.update_task_clock();
             self.auto_open_approval_overlay();
 
@@ -177,6 +241,7 @@ impl InlineApp {
             queued_prompts: 0,
             toast: self.toast.as_deref(),
             hint: None,
+            completion: self.completion.as_ref(),
         }
     }
 
@@ -233,11 +298,21 @@ impl InlineApp {
                 .get(self.rendered_cells)
                 .cloned();
             if let Some(cell) = cell {
-                // If we were streaming and a later cell arrived, flush the streaming
-                // buffer and advance the counter past the streaming cell first.
+                // If we were mid-stream and a later cell arrived, finalize any
+                // streaming ctx anchored to the current slot first.
                 if let Some(mut ctx) = self.streaming.take() {
                     if ctx.cell_index == self.rendered_cells {
                         self.drain_streaming_ctx(&mut ctx, terminal, true)?;
+                        self.rendered_cells += 1;
+                        continue;
+                    }
+                }
+                if let Some(mut ctx) = self.streaming_exec.take() {
+                    if ctx.cell_index == self.rendered_cells {
+                        // Finalize the exec stream and advance.
+                        if let HistoryCellModel::ExecOutput(ref exec_cell) = cell {
+                            self.finalize_streaming_exec(&mut ctx, exec_cell, terminal)?;
+                        }
                         self.rendered_cells += 1;
                         continue;
                     }
@@ -262,6 +337,9 @@ impl InlineApp {
         match tail {
             HistoryCellModel::AssistantMessage(ref cell) => {
                 self.handle_streaming_tail(cell, terminal, width)?;
+            }
+            HistoryCellModel::ExecOutput(ref cell) => {
+                self.handle_streaming_exec_tail(cell, terminal)?;
             }
             _ => {
                 let lines = render_cell(&tail, Some(width));
@@ -361,6 +439,146 @@ impl InlineApp {
         Ok(())
     }
 
+    /// Handle the tail cell when it is a still-streaming `ExecOutput`. Stream
+    /// output lines into scrollback up to [`exec_render::OUTPUT_KEEP_LINES`];
+    /// buffer any further lines so a proper head/ellipsis/tail fold can be
+    /// emitted on finalize.
+    fn handle_streaming_exec_tail(
+        &mut self,
+        cell: &mli_types::ExecOutputCell,
+        terminal: &mut Terminal,
+    ) -> Result<()> {
+        let tail_index = self.core.state().transcript.history.len() - 1;
+
+        // Invalidate any ctx anchored to a different cell.
+        if let Some(ctx) = self.streaming_exec.as_ref()
+            && ctx.cell_index != tail_index
+        {
+            let mut ctx = self.streaming_exec.take().expect("ctx present");
+            self.finalize_streaming_exec(&mut ctx, cell, terminal)?;
+        }
+
+        // Lazily init.
+        if self.streaming_exec.is_none() {
+            self.streaming_exec = Some(StreamingExecCtx {
+                cell_index: tail_index,
+                header_emitted: false,
+                text_len_seen: 0,
+                head_lines_pushed: 0,
+                tail_buffer: VecDeque::with_capacity(exec_render::OUTPUT_KEEP_LINES),
+                total_output_lines: 0,
+            });
+        }
+
+        // Emit the prelude (header + command preview) the very first time.
+        let ctx = self.streaming_exec.as_mut().expect("ctx just set");
+        if !ctx.header_emitted {
+            let prelude = exec_render::render_streaming_prelude(&cell.command);
+            insert_history_lines(terminal, prelude)?;
+            ctx.header_emitted = true;
+        }
+
+        // Extract new output bytes up to the last newline; drip complete lines
+        // into scrollback (subject to the head limit) and buffer overflow lines.
+        if cell.output.len() > ctx.text_len_seen {
+            let delta = &cell.output[ctx.text_len_seen..];
+            let Some(last_newline_rel) = delta.rfind('\n') else {
+                // No complete line yet; wait for more.
+                return Ok(());
+            };
+            let complete_chunk = &delta[..=last_newline_rel];
+            let advance = last_newline_rel + 1;
+            ctx.text_len_seen += advance;
+
+            let complete = complete_chunk.to_owned();
+            let mut ctx = self.streaming_exec.take().expect("ctx still some");
+            for line in complete.split('\n') {
+                if line.is_empty() && ctx.total_output_lines == 0 {
+                    // Strip a leading empty line that tends to come from agents
+                    // that prefix a newline before the first chunk.
+                    continue;
+                }
+                self.push_exec_output_line(&mut ctx, terminal, line)?;
+            }
+            self.streaming_exec = Some(ctx);
+        }
+
+        // Transition on completion.
+        if !cell.streaming {
+            let mut ctx = self.streaming_exec.take().expect("ctx still some");
+            self.finalize_streaming_exec(&mut ctx, cell, terminal)?;
+            self.rendered_cells = tail_index + 1;
+        }
+        Ok(())
+    }
+
+    fn push_exec_output_line(
+        &mut self,
+        ctx: &mut StreamingExecCtx,
+        terminal: &mut Terminal,
+        line: &str,
+    ) -> Result<()> {
+        ctx.total_output_lines += 1;
+        if ctx.head_lines_pushed < exec_render::OUTPUT_KEEP_LINES {
+            let rendered = exec_render::prefix_output_line(
+                line,
+                ctx.head_lines_pushed == 0,
+            );
+            insert_history_lines(terminal, vec![rendered])?;
+            ctx.head_lines_pushed += 1;
+            return Ok(());
+        }
+        // Past the head budget — fall into the rolling tail buffer.
+        ctx.tail_buffer.push_back(line.to_string());
+        while ctx.tail_buffer.len() > exec_render::OUTPUT_KEEP_LINES {
+            ctx.tail_buffer.pop_front();
+        }
+        Ok(())
+    }
+
+    fn finalize_streaming_exec(
+        &mut self,
+        ctx: &mut StreamingExecCtx,
+        cell: &mli_types::ExecOutputCell,
+        terminal: &mut Terminal,
+    ) -> Result<()> {
+        // Flush any trailing partial line (bytes after the last newline).
+        if cell.output.len() > ctx.text_len_seen {
+            let tail = cell.output[ctx.text_len_seen..].to_owned();
+            ctx.text_len_seen = cell.output.len();
+            if !tail.is_empty() {
+                self.push_exec_output_line(ctx, terminal, &tail)?;
+            }
+        }
+
+        // Make sure the header/command preamble is at least on screen, even if
+        // no output at all arrived.
+        if !ctx.header_emitted {
+            let prelude = exec_render::render_streaming_prelude(&cell.command);
+            insert_history_lines(terminal, prelude)?;
+            ctx.header_emitted = true;
+        }
+
+        // Ellipsis + tail flush. The tail buffer only carries data when we've
+        // been past the head budget.
+        let omitted = ctx
+            .total_output_lines
+            .saturating_sub(ctx.head_lines_pushed + ctx.tail_buffer.len());
+        if omitted > 0 {
+            insert_history_lines(terminal, vec![exec_render::ellipsis_line(omitted)])?;
+        }
+        if !ctx.tail_buffer.is_empty() {
+            let mut tail_lines = Vec::with_capacity(ctx.tail_buffer.len());
+            for line in ctx.tail_buffer.drain(..) {
+                tail_lines.push(exec_render::prefix_output_line(&line, false));
+            }
+            insert_history_lines(terminal, tail_lines)?;
+        }
+
+        insert_history_lines(terminal, exec_render::render_streaming_finalize_footer())?;
+        Ok(())
+    }
+
     fn resize_viewport(&mut self, terminal: &mut Terminal) -> Result<()> {
         let screen = terminal.backend().size()?;
         if screen.width == 0 || screen.height == 0 {
@@ -377,7 +595,35 @@ impl InlineApp {
         let top = screen.height.saturating_sub(height);
         let new_area = Rect::new(0, top, screen.width, height);
         if terminal.viewport_area != new_area {
+            let old_top = terminal.viewport_area.top();
+            // Clear any physical terminal rows that change role between
+            // "scrollback" and "viewport". Ratatui's diff renderer only emits
+            // updates for cells whose buffer value *changed*, so empty cells in
+            // the new viewport leave any pre-existing scrollback text bleeding
+            // through (growing case). Conversely, when we shrink, ex-viewport
+            // rows carry stale overlay borders into scrollback (ghost-frames).
+            use crossterm::cursor::MoveTo;
+            use crossterm::queue;
+            use crossterm::terminal::{Clear, ClearType};
+            let clear_range = if top < old_top {
+                // Growing upward: clear newly-included rows.
+                Some(top..old_top)
+            } else if top > old_top {
+                // Shrinking: clear rows that are now back in scrollback.
+                Some(old_top..top)
+            } else {
+                None
+            };
+            if let Some(range) = clear_range {
+                let writer = terminal.backend_mut();
+                for y in range {
+                    queue!(writer, MoveTo(0, y), Clear(ClearType::CurrentLine))?;
+                }
+                writer.flush()?;
+            }
             terminal.set_viewport_area(new_area);
+            // Force ratatui to repaint every cell next frame, not just diffs.
+            terminal.clear()?;
         }
         Ok(())
     }
@@ -405,6 +651,16 @@ impl InlineApp {
 
         if self.overlay.is_some() {
             return self.handle_overlay_key(key, terminal);
+        }
+
+        // When a completion popup is open, Up/Down/Enter/Tab/Esc are consumed
+        // by the popup. Other keys edit the buffer and we re-evaluate below.
+        if self.completion.is_some() {
+            if let Some(handled) = self.handle_completion_key(key, terminal)? {
+                if handled {
+                    return Ok(());
+                }
+            }
         }
 
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
@@ -479,6 +735,7 @@ impl InlineApp {
             }
             _ => {}
         }
+        self.refresh_completion();
         Ok(())
     }
 
@@ -487,17 +744,121 @@ impl InlineApp {
             // Overlays don't want multi-line paste; route each char.
             for ch in data.chars() {
                 let synthetic = KeyEvent::new(KeyCode::Char(ch), KeyModifiers::empty());
-                // Fire and forget; ignore the Result.
-                let mut overlay = match self.overlay.as_mut() {
-                    Some(o) => o,
-                    None => return,
+                let Some(overlay_mut) = self.overlay.as_mut() else {
+                    return;
                 };
-                let _ = overlay::handle_key(&mut overlay, synthetic);
+                let _ = overlay::handle_key(overlay_mut, synthetic);
             }
             return;
         }
         self.reset_history_nav();
+        let newline_count = data.bytes().filter(|&b| b == b'\n').count();
         self.insert_str(data);
+        if newline_count > 0 {
+            self.toast = Some(format!(
+                "pasted {} line{} ({} char{})",
+                newline_count + 1,
+                if newline_count + 1 == 1 { "" } else { "s" },
+                data.chars().count(),
+                if data.chars().count() == 1 { "" } else { "s" }
+            ));
+        }
+        self.refresh_completion();
+    }
+
+    /// Handle a key while the completion popup is open. Returns:
+    /// * `Some(true)`  — popup consumed the key (Up/Down/Enter/Tab/Esc)
+    /// * `Some(false)` — popup wants the normal composer pipeline to run, then
+    ///                   we'll re-evaluate completion afterwards
+    /// * `None`        — no completion active (shouldn't happen if caller guards)
+    fn handle_completion_key(
+        &mut self,
+        key: KeyEvent,
+        terminal: &mut Terminal,
+    ) -> Result<Option<bool>> {
+        let Some(popup) = self.completion.as_mut() else {
+            return Ok(None);
+        };
+        match key.code {
+            KeyCode::Up => {
+                popup.move_cursor(-1);
+                Ok(Some(true))
+            }
+            KeyCode::Down => {
+                popup.move_cursor(1);
+                Ok(Some(true))
+            }
+            KeyCode::Esc => {
+                self.completion = None;
+                Ok(Some(true))
+            }
+            KeyCode::Tab | KeyCode::Enter => {
+                self.accept_completion(terminal)?;
+                Ok(Some(true))
+            }
+            _ => Ok(Some(false)),
+        }
+    }
+
+    fn accept_completion(&mut self, terminal: &mut Terminal) -> Result<()> {
+        let Some(popup) = self.completion.as_ref() else {
+            return Ok(());
+        };
+        let Some(outcome) = popup.accept() else {
+            return Ok(());
+        };
+        match outcome {
+            AcceptOutcome::Replace {
+                replacement,
+                cursor_offset,
+            } => {
+                let anchor = popup.anchor_byte;
+                let end = popup.token_end_byte;
+                let state = self.core.state_mut();
+                state.composer.buffer.replace_range(anchor..end, &replacement);
+                state.composer.cursor = anchor + cursor_offset;
+                self.completion = None;
+            }
+            AcceptOutcome::Submit(command) => {
+                // Treat the popup pick as if the user typed the command and
+                // pressed Enter. Clear the buffer first so submit_composer
+                // sees the command we want to dispatch.
+                {
+                    let state = self.core.state_mut();
+                    state.composer.buffer = command;
+                    state.composer.cursor = state.composer.buffer.len();
+                }
+                self.completion = None;
+                self.submit_composer(terminal)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Recompute the completion popup from the current composer state. Called
+    /// after every key/paste that might change the buffer or cursor.
+    fn refresh_completion(&mut self) {
+        let (buffer, cursor) = {
+            let state = self.core.state();
+            (state.composer.buffer.clone(), state.composer.cursor)
+        };
+        // Detect what the trigger would be, so we know whether we need skill
+        // data before evaluating.
+        let leading = buffer.as_bytes().first().copied();
+        let cursor_in_first_token = cursor > 0
+            && buffer[..cursor].find(char::is_whitespace).is_none();
+        let needs_skills = matches!(leading, Some(b'$')) && cursor_in_first_token;
+        if needs_skills && self.skills_cache.is_none() {
+            // Lazily fetch skills once. Failures are silently ignored — the
+            // popup just stays closed until a later retry.
+            if let Ok(skills) = self.core.request_skills() {
+                self.skills_cache = Some(skills);
+            }
+        }
+        let skill_slice = self.skills_cache.as_deref();
+        let previous = self.completion.as_ref();
+        let new_completion = completion::evaluate(&buffer, cursor, skill_slice, previous);
+        self.completion = new_completion.filter(|p| !p.is_empty());
     }
 
     fn insert_char(&mut self, ch: char) {

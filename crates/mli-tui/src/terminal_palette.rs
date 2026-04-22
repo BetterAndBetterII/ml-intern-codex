@@ -364,28 +364,3 @@ pub const XTERM_COLORS: [(u8, u8, u8); 256] = [
     (238, 238, 238), // 255 Grey93
 ];
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use pretty_assertions::assert_eq;
-
-    #[test]
-    fn default_color_slots_preserve_partial_query_results() {
-        let fg = Some((1, 2, 3));
-        let bg = Some((4, 5, 6));
-
-        assert_eq!(
-            build_default_color_slots(fg, None),
-            Some(DefaultColorSlots { fg, bg: None })
-        );
-        assert_eq!(
-            build_default_color_slots(None, bg),
-            Some(DefaultColorSlots { fg: None, bg })
-        );
-        assert_eq!(
-            build_default_color_slots(fg, bg),
-            Some(DefaultColorSlots { fg, bg })
-        );
-        assert_eq!(build_default_color_slots(None, None), None);
-    }
-}

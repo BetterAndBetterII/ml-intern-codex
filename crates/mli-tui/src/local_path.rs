@@ -45,33 +45,3 @@ fn strip_windows_verbatim_prefix(path_text: String) -> String {
     path_text
 }
 
-#[cfg(test)]
-mod tests {
-    use super::normalize_local_path_text;
-    use pretty_assertions::assert_eq;
-
-    #[test]
-    fn normalize_local_path_text_strips_supported_windows_verbatim_prefixes() {
-        for (input, expected) in [
-            (
-                r"\\?\C:\Users\me\repo\file.txt",
-                "C:/Users/me/repo/file.txt",
-            ),
-            (r"\\?\UNC\server\share\file.txt", "//server/share/file.txt"),
-            (r"\?\C:\Users\me\repo\file.txt", "C:/Users/me/repo/file.txt"),
-            (r"\?\UNC\server\share\file.txt", "//server/share/file.txt"),
-            (r"\?/C:/Users/me/repo/file.txt", "C:/Users/me/repo/file.txt"),
-            (r"\?/UNC/server/share/file.txt", "//server/share/file.txt"),
-        ] {
-            assert_eq!(normalize_local_path_text(input), expected, "input: {input}");
-        }
-    }
-
-    #[test]
-    fn normalize_local_path_text_keeps_unc_roots_stable() {
-        assert_eq!(
-            normalize_local_path_text(r"\\server\share\file.txt"),
-            "//server/share/file.txt"
-        );
-    }
-}

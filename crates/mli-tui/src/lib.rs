@@ -6,7 +6,10 @@ pub mod renderer;
 // Rendering primitives ported from CodexPotter (Apache 2.0).
 pub mod bottom_pane;
 pub mod color;
+pub mod completion;
 pub mod custom_terminal;
+pub mod diff_view;
+pub mod exec_render;
 pub mod history_cell;
 pub mod inline_tui;
 pub(crate) mod overlay;
@@ -18,6 +21,7 @@ pub mod markdown;
 pub mod markdown_render;
 pub mod markdown_stream;
 pub mod render;
+pub mod startup_banner;
 pub mod style;
 pub mod terminal_cleanup;
 pub mod terminal_palette;

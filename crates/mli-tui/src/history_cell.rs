@@ -14,6 +14,8 @@ use mli_types::{ApprovalKind, HistoryCellModel, PendingApproval};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
+use crate::diff_view;
+use crate::exec_render;
 use crate::markdown_render::render_markdown_text_with_width;
 use crate::render::line_utils::prefix_lines;
 
@@ -30,8 +32,8 @@ pub fn render_cell(cell: &HistoryCellModel, width: Option<u16>) -> Vec<Line<'sta
     match cell {
         HistoryCellModel::UserMessage(c) => render_user_message(&c.text, width),
         HistoryCellModel::AssistantMessage(c) => render_assistant_message(&c.text, width),
-        HistoryCellModel::ExecCommand(c) => render_exec_command(&c.command),
-        HistoryCellModel::ExecOutput(c) => render_exec_output(&c.command, &c.output),
+        HistoryCellModel::ExecCommand(c) => exec_render::render_running(&c.command),
+        HistoryCellModel::ExecOutput(c) => exec_render::render_finalized(&c.command, &c.output),
         HistoryCellModel::PatchSummary(c) => render_patch_summary(&c.summary, width),
         HistoryCellModel::PlanUpdate(c) => render_plan_update(&c.summary, width),
         HistoryCellModel::ApprovalRequest(c) => render_approval(&c.approval, width),
@@ -81,36 +83,21 @@ fn render_assistant_message(text: &str, width: usize) -> Vec<Line<'static>> {
     add_trailing_blank(out)
 }
 
-fn render_exec_command(command: &str) -> Vec<Line<'static>> {
-    vec![
-        Line::from(vec![
-            Span::styled("$ ", Style::default().fg(Color::DarkGray)),
-            Span::styled(command.to_string(), Style::default().fg(Color::Cyan)),
-        ]),
-    ]
-}
-
-fn render_exec_output(command: &str, output: &str) -> Vec<Line<'static>> {
-    let mut lines = vec![
-        Line::from(vec![
-            Span::styled("$ ", Style::default().fg(Color::DarkGray)),
-            Span::styled(command.to_string(), Style::default().fg(Color::Cyan)),
-        ]),
-    ];
-    let trimmed = output.trim_end_matches('\n');
-    if !trimmed.is_empty() {
-        for raw in trimmed.split('\n') {
-            lines.push(Line::from(vec![
-                Span::styled("  ", Style::default().fg(Color::DarkGray)),
-                Span::raw(raw.to_string()),
-            ]));
-        }
-    }
-    add_trailing_blank(lines)
-}
-
 fn render_patch_summary(summary: &str, width: usize) -> Vec<Line<'static>> {
-    render_prefixed_markdown(summary, width, "✎ ", Color::Yellow)
+    if diff_view::looks_like_unified_diff(summary) {
+        let mut lines = diff_view::render_unified_diff(summary);
+        add_trailing_blank_lines(&mut lines);
+        lines
+    } else {
+        render_prefixed_markdown(summary, width, "✎ ", Color::Yellow)
+    }
+}
+
+fn add_trailing_blank_lines(lines: &mut Vec<Line<'static>>) {
+    match lines.last() {
+        Some(last) if last.spans.iter().all(|s| s.content.is_empty()) => {}
+        _ => lines.push(Line::from("")),
+    }
 }
 
 fn render_plan_update(summary: &str, width: usize) -> Vec<Line<'static>> {

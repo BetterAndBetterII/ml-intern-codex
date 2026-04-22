@@ -22,6 +22,8 @@ use ratatui::widgets::{Block, Borders, Paragraph, Widget, WidgetRef, Wrap};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
+use crate::completion::{self, Completion};
+
 const MIN_HEIGHT: u16 = 5; // status + composer (3 rows including borders) + hint
 const COMPOSER_MIN_INNER_ROWS: u16 = 1;
 const COMPOSER_MAX_INNER_ROWS: u16 = 8;
@@ -38,6 +40,7 @@ pub struct BottomPaneProps<'a> {
     pub queued_prompts: usize,
     pub toast: Option<&'a str>,
     pub hint: Option<&'a str>,
+    pub completion: Option<&'a Completion>,
 }
 
 /// Result of rendering the bottom pane. `cursor` is the absolute terminal
@@ -57,7 +60,8 @@ pub fn desired_height(props: &BottomPaneProps, width: u16) -> u16 {
     let composer_inner = composer_inner_rows(props.composer_buffer, inner_cols);
     let composer_rows = composer_inner + 2; // borders top + bottom
     let hint_rows: u16 = 1;
-    let total = status_rows + approval_rows + composer_rows + hint_rows;
+    let popup_rows = props.completion.map(completion::desired_height).unwrap_or(0);
+    let total = popup_rows + status_rows + approval_rows + composer_rows + hint_rows;
     total.max(MIN_HEIGHT)
 }
 
@@ -69,12 +73,15 @@ pub fn render(area: Rect, buf: &mut Buffer, props: &BottomPaneProps) -> BottomPa
     let status_rows: u16 = if show_status_row(props) { 1 } else { 0 };
     let approval_rows: u16 = if props.pending_approval.is_some() { 2 } else { 0 };
     let hint_rows: u16 = 1;
+    let popup_rows: u16 = props
+        .completion
+        .map(completion::desired_height)
+        .unwrap_or(0);
 
     let inner_cols = area.width.saturating_sub(4) as usize;
     let composer_inner = composer_inner_rows(props.composer_buffer, inner_cols);
     let composer_total = (composer_inner + 2).max(3);
-    let reserved = status_rows + approval_rows + hint_rows;
-    // If vertical space is tight, composer still gets at least 3 rows.
+    let reserved = status_rows + approval_rows + hint_rows + popup_rows;
     let composer_rows = composer_total.min(area.height.saturating_sub(reserved).max(3));
 
     let mut constraints = Vec::new();
@@ -83,6 +90,9 @@ pub fn render(area: Rect, buf: &mut Buffer, props: &BottomPaneProps) -> BottomPa
     }
     if approval_rows > 0 {
         constraints.push(Constraint::Length(approval_rows));
+    }
+    if popup_rows > 0 {
+        constraints.push(Constraint::Length(popup_rows));
     }
     constraints.push(Constraint::Length(composer_rows));
     constraints.push(Constraint::Length(hint_rows));
@@ -99,6 +109,12 @@ pub fn render(area: Rect, buf: &mut Buffer, props: &BottomPaneProps) -> BottomPa
     }
     if approval_rows > 0 {
         render_pending_approval(chunks[idx], buf, props);
+        idx += 1;
+    }
+    if popup_rows > 0 {
+        if let Some(popup) = props.completion {
+            completion::render(chunks[idx], buf, popup);
+        }
         idx += 1;
     }
     let composer_area = chunks[idx];
