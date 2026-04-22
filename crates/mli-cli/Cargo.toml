@@ -1,0 +1,22 @@
+[package]
+name = "mli-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "ml-intern"
+path = "src/main.rs"
+
+[[bin]]
+name = "ml-intern-app-server"
+path = "src/bin/ml-intern-app-server.rs"
+
+[dependencies]
+anyhow.workspace = true
+mli-app-server.workspace = true
+mli-tui.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+unicode-width.workspace = true

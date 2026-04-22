@@ -1,0 +1,54 @@
+[workspace]
+members = [
+  "crates/mli-types",
+  "crates/mli-config",
+  "crates/mli-protocol",
+  "crates/mli-repo",
+  "crates/mli-artifacts",
+  "crates/mli-skills",
+  "crates/mli-services",
+  "crates/mli-upstream-protocol",
+  "crates/mli-codex-bridge",
+  "crates/mli-runtime",
+  "crates/mli-app-server",
+  "crates/mli-tui",
+  "crates/mli-cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+
+[workspace.dependencies]
+# internal
+mli-app-server = { path = "crates/mli-app-server" }
+mli-artifacts = { path = "crates/mli-artifacts" }
+mli-codex-bridge = { path = "crates/mli-codex-bridge" }
+mli-config = { path = "crates/mli-config" }
+mli-protocol = { path = "crates/mli-protocol" }
+mli-repo = { path = "crates/mli-repo" }
+mli-runtime = { path = "crates/mli-runtime" }
+mli-services = { path = "crates/mli-services" }
+mli-skills = { path = "crates/mli-skills" }
+mli-tui = { path = "crates/mli-tui" }
+mli-types = { path = "crates/mli-types" }
+mli-upstream-protocol = { path = "crates/mli-upstream-protocol" }
+
+# external
+anyhow = "=1.0.102"
+base64 = "=0.22.1"
+chrono = { version = "=0.4.44", default-features = false, features = ["serde", "std"] }
+crossterm = "=0.29.0"
+dirs = "=6.0.0"
+ratatui = { version = "=0.30.0", features = ["crossterm_0_29"] }
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.149"
+toml = "=0.7.8"
+uuid = { version = "=1.23.1", features = ["serde", "v4"] }
+unicode-width = "=0.2.2"
+walkdir = "=2.5.0"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"

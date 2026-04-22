@@ -1,0 +1,19 @@
+[package]
+name = "mli-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "mli_tui"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow.workspace = true
+crossterm.workspace = true
+mli-protocol.workspace = true
+mli-runtime.workspace = true
+mli-types.workspace = true
+ratatui.workspace = true
+serde.workspace = true
+serde_json.workspace = true

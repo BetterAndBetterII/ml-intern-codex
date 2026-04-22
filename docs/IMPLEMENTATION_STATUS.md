@@ -1,0 +1,41 @@
+# Implementation Status
+
+## What is implemented
+
+- Rust workspace split into the layers and crates described in `docs/SPEC.md`.
+- Local config loading now bootstraps `~/.ml-intern-codex/config.toml` and `db/state.sqlite` on first run, alongside file-backed thread/turn/artifact persistence, transcript JSONL logging, skill discovery, and artifact preview generation.
+- Python helper artifact writers now exist for dataset audits, paper reports, and HF job snapshots, so bundled skills can point Codex at stable `python3 -m mli_helpers.artifacts.write_*` commands instead of placeholder stubs.
+- The reserved `helpers/node/` lane is now bootstrapped as a valid ESM package with a stable `src/index.mjs` export plus `lint` / `smoke` scripts, so future `npx`-style helpers do not start from a broken manifest.
+- Product-local JSONL protocol DTOs and a lightweight upstream Codex JSON-RPC subset, now including approval response DTOs.
+- `codex app-server` process bridge, runtime session orchestration, and stdio local app-server request dispatch, including upstream server-request handling for approvals and `request_user_input`.
+- Runtime-side artifact polling that can surface `artifact/created` / `artifact/updated` while a turn is still streaming, plus malformed-manifest warnings instead of hard failures.
+- `ml-intern` now boots a full-screen event-driven terminal UI on interactive TTYs using `crossterm` for raw mode / key events and `ratatui` for layout, widgets, redraw, and overlay rendering: header/session chrome, transcript viewport, composer, status toast, and an overlay stack for help, skills, threads, artifacts, artifact viewing, approvals, and `request_user_input`. Interactive `Esc` / `Ctrl+C` still interrupts a live turn, and `/quit` exits from the composer.
+- The full-screen input path now relies on `crossterm` key decoding while keeping composer edits on character boundaries, so non-ASCII prompts and `request_user_input` answers no longer disappear or corrupt cursor movement; `isSecret` questionnaire inputs are masked on screen, empty artifact bundles stay out of the broken `File 1/0` viewer path, and zero-sized scripted PTYs fall back to a fixed `80x24` viewport so deterministic smoke runs still paint a complete screen.
+- Full-screen PTY process smokes now cover the startup frame, UTF-8 prompt submission, skill picker selection, thread picker resume, live-turn interrupt both from the base screen and with the help overlay open, the degraded `turn/interrupt` transport-error path, command approval overlay acceptance, `request_user_input` overlay answer collection plus secret-input masking, and artifact list/viewer reopening including missing-file read errors, so the core overlay round-trips are exercised without falling back to the frozen line-mode client.
+- Full-screen PTY assertions now replay ANSI cursor movement into screen snapshots inside `crates/mli-cli/tests/process_smoke.rs`, so the ratatui diff renderer stays testable even though raw `script` captures no longer contain contiguous plain-text frames.
+- Full-screen overlay hotkeys now keep interrupt intent ahead of modal chrome: during a live turn, `Esc` / `Ctrl+C` still sends `turn/interrupt` even if help is open, while idle pickers/viewers treat `Ctrl+C` like `Esc` instead of silently swallowing the key.
+- Full-screen ready-only navigation now stays aligned with the single foreground turn: while a turn is streaming, `/threads`, `/skills`, `/artifacts`, `/clear`, and the empty-composer `$` shortcut no longer open overlays or mutate state underneath the live session, and when an approval is pending those entry points instead route users back to `/approval`.
+- Status toasts now render above the overlay layer instead of underneath it, so approval/interrupt transport failures stay visible even when the blocking modal remains open.
+- Transcript viewport scrolling now clamps oversized scroll offsets back to the available history window, so `PageUp` on short restored threads no longer blanks the full-screen transcript.
+- Shared `turn/completed` handling now returns the session connection banner to `Ready` immediately, so full-screen turns can accept the next prompt as soon as a completion or interrupt lands instead of waiting for a separate thread-status transition.
+- The previous line-mode transcript client is now explicitly frozen as a fallback surface for non-TTY runs and `--line-mode`, so app-server debugging / deterministic process smokes keep the old `println!/stdin/read_line` behavior without taking on new UI features.
+- The line-mode TUI now live-redraws the transcript while a turn is running instead of waiting until the drain loop ends, so assistant deltas, command/patch/artifact cells, and pre-approval state become visible in real time.
+- Line-mode pickers now accept case-insensitive filter text before selection, so `/skills`, `/artifacts`, and `/threads` can narrow large lists without relying on exact spelling or scrolling through the full set.
+- Upstream `commandExecution`, `fileChange`, and `plan` items are now projected into transcript view models instead of generic status spam: command start becomes `exec>`, `item/commandExecution/outputDelta` grows a live `exec~` output cell during long-running commands, completion settles that cell into `exec<`, file changes show `patch>` summaries both when proposed and when completed, and plan updates surface as `plan>` cells in both live sessions and transcript replay.
+- Artifact transcript cells now render flow-specific summaries instead of generic titles: dataset audits show dataset/splits/issues, paper reports show query/paper count/recommended recipe, and HF job artifacts show job/status/hardware/dashboard URL; `artifact/updated` also appears inline as its own transcript cell rather than a plain status line.
+- Approval retry ergonomics are now better aligned with degraded flows: if `approval/respond` fails, the client keeps the approval pending, surfaces an inline error, blocks new prompts behind that pending approval, and exposes `/approval` for an explicit retry instead of dropping the session.
+- Interrupt handling is also more tolerant of transport hiccups: if `turn/interrupt` fails to send, the client now keeps the live turn context intact and surfaces an inline error instead of tearing down the foreground flow; a fullscreen PTY smoke now verifies that the busy gate still blocks new prompts after that error instead of silently dropping back to idle.
+- `thread/resume` now preserves persisted `Running` / `WaitingApproval` status, rehydrates the active turn / pending approval context from local turn + transcript state, immediately re-enters the live foreground drain for resumed turns, falls back to a local transcript-only view when upstream resume fails, and skips corrupt `transcript.jsonl` lines with explicit warning cells instead of aborting the whole restore path.
+- Workspace dependency versions are now pinned to crates already present in the local cache, unused crates were removed, and the offline Rust quality gates now all pass in this sandbox: `cargo fmt --check`, `cargo test --workspace --offline`, and `cargo clippy --workspace --all-targets --offline -- -D warnings`.
+
+## Known gaps
+
+- Upstream protocol coverage is still intentionally narrow beyond the core turn, approval, and artifact flows, and may need tightening against real `codex-cli` traffic.
+- Artifact detection is still implemented as a lightweight runtime poller rather than an OS-level filesystem watcher.
+
+## Suggested next verification steps
+
+1. Run `python3 -m unittest helpers/python/tests/test_artifact_writers.py` to verify the helper CLIs write canonical artifact bundles and the reserved Node helper manifest stays valid.
+2. Re-run `PATH="$HOME/.cargo/bin:$PATH" cargo test --workspace --offline` after dependency changes to keep the offline baseline green.
+3. Run `PATH="$HOME/.cargo/bin:$PATH" cargo fmt --check` and `cargo clippy --workspace --all-targets --offline`.
+4. Launch `ml-intern` against the installed `codex-cli 0.120.0` in a real TTY and walk the full manual release checklist in `tests/e2e/README.md`, with extra attention on general overlay ergonomics and visual polish beyond the deterministic PTY smokes.
