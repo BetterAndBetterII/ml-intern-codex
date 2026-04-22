@@ -21,7 +21,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Text},
-    widgets::{Block, Borders, Clear, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, Paragraph},
 };
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
@@ -36,6 +36,9 @@ const TICK_INTERVAL: Duration = Duration::from_millis(250);
 const IDLE_SLEEP: Duration = Duration::from_millis(16);
 const FALLBACK_TERMINAL_WIDTH: u16 = 80;
 const FALLBACK_TERMINAL_HEIGHT: u16 = 24;
+const HEADER_HEIGHT: u16 = 5;
+const COMPOSER_HEIGHT: u16 = 5;
+const TRANSCRIPT_CONTINUATION_PREFIX: &str = "  ";
 
 pub fn run_fullscreen_tui(app_server_bin: Option<PathBuf>) -> Result<()> {
     let client = AppClient::spawn(app_server_bin)?;
@@ -1090,9 +1093,9 @@ fn render_screen(
     let sections = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(4),
+            Constraint::Length(HEADER_HEIGHT),
             Constraint::Min(5),
-            Constraint::Length(5),
+            Constraint::Length(COMPOSER_HEIGHT),
         ])
         .split(area);
 
@@ -1469,11 +1472,7 @@ fn render_approval_overlay(frame: &mut Frame, area: Rect, state: &ApprovalOverla
         return;
     }
     let lines = approval_overlay_lines(state, inner.width as usize);
-    let visible = lines
-        .into_iter()
-        .take(inner.height as usize)
-        .collect::<Vec<_>>();
-    render_lines(frame, inner, &visible);
+    render_lines(frame, inner, &lines);
 }
 
 fn approval_overlay_lines(state: &ApprovalOverlayState, width: usize) -> Vec<String> {
@@ -1582,8 +1581,12 @@ fn render_lines(frame: &mut Frame, area: Rect, lines: &[String]) {
     if area.width == 0 || area.height == 0 {
         return;
     }
-    let text = Text::from(lines.join("\n"));
-    frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }), area);
+    let visible = wrap_lines(lines, area.width as usize)
+        .into_iter()
+        .take(area.height as usize)
+        .collect::<Vec<_>>();
+    let text = Text::from(visible.join("\n"));
+    frame.render_widget(Paragraph::new(text), area);
 }
 
 fn framed_block<'a>(title: &'a str, color: Color) -> Block<'a> {
@@ -1658,18 +1661,41 @@ fn transcript_lines(state: &AppState, width: usize) -> Vec<String> {
     }
     let mut lines = Vec::new();
     for cell in &state.transcript.history {
-        let wrapped = wrap_text(&render_history_cell(cell), width);
-        if wrapped.is_empty() {
-            lines.push(String::new());
+        lines.extend(wrap_with_continuation_prefix(
+            &render_history_cell(cell),
+            width,
+            TRANSCRIPT_CONTINUATION_PREFIX,
+        ));
+    }
+    lines
+}
+
+fn wrap_with_continuation_prefix(text: &str, width: usize, prefix: &str) -> Vec<String> {
+    let mut wrapped = wrap_text(text, width).into_iter();
+    let Some(first_line) = wrapped.next() else {
+        return Vec::new();
+    };
+
+    let prefix_width = display_width(prefix);
+    if prefix_width == 0 || width <= prefix_width {
+        let mut lines = vec![first_line];
+        lines.extend(wrapped);
+        return lines;
+    }
+
+    let continuation_width = width.saturating_sub(prefix_width);
+    let mut lines = vec![first_line];
+    for line in wrapped {
+        let continuation = wrap_text(&line, continuation_width);
+        if continuation.is_empty() {
+            lines.push(prefix.to_owned());
             continue;
         }
-        for (index, line) in wrapped.into_iter().enumerate() {
-            if index == 0 {
-                lines.push(line);
-            } else {
-                lines.push(format!("  {line}"));
-            }
-        }
+        lines.extend(
+            continuation
+                .into_iter()
+                .map(|segment| format!("{prefix}{segment}")),
+        );
     }
     lines
 }
@@ -2167,6 +2193,21 @@ mod tests {
     }
 
     #[test]
+    fn transcript_lines_keep_continuation_rows_within_width_budget() {
+        let mut state = sample_state();
+        state.transcript.history = vec![HistoryCellModel::AssistantMessage(AssistantMessageCell {
+            text: "12345678901234567890".to_owned(),
+            streaming: false,
+        })];
+
+        let lines = transcript_lines(&state, 12);
+
+        assert!(lines.len() > 1);
+        assert!(lines.iter().all(|line| display_width(line) <= 12));
+        assert!(lines.iter().skip(1).all(|line| line.starts_with("  ")));
+    }
+
+    #[test]
     fn truncate_display_width_preserves_column_budget_for_wide_text() {
         assert_eq!(truncate_display_width("你好ab", 4), "你…");
         assert_eq!(truncate_display_width("abcde", 4), "abc…");
@@ -2303,6 +2344,23 @@ mod tests {
         assert!(rendered.contains("you> hello"));
         assert!(rendered.contains("assistant> world"));
         assert!(rendered.contains("inspect dataset|"));
+    }
+
+    #[test]
+    fn render_screen_keeps_all_header_rows_visible() {
+        let ui = FullscreenUiState {
+            size: TerminalSize {
+                width: 80,
+                height: 24,
+            },
+            ..FullscreenUiState::default()
+        };
+
+        let rendered = render_screen_snapshot(&sample_state(), None, &ui);
+
+        assert!(rendered.contains("cwd: /tmp/project"));
+        assert!(rendered.contains("approval: OnRequest"));
+        assert!(rendered.contains("sandbox: WorkspaceWrite"));
     }
 
     #[test]
