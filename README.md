@@ -1,31 +1,92 @@
 # ml-intern-codex
 
-A local-first ML engineering terminal app built on top of the installed `codex` binary.
+`ml-intern-codex` is a local-first ML engineering terminal app built on top of your installed `codex`.
 
-The repo is organized as a Rust workspace that follows the dependency direction documented in `docs/SPEC.md`:
+- full-screen Rust TUI
+- local wrapper app-server
+- skill-first ML workflows
+- local artifact persistence for reports, audits, and job snapshots
 
-```text
-Types -> Config -> Repo -> Service -> Runtime -> UI
+## Requirements
+
+- `codex` on `PATH`
+- a working local Codex auth/config under `~/.codex`
+- `git`
+- `curl`
+
+Quick check:
+
+```bash
+codex --version
 ```
 
-Top-level areas:
+## One-line install
 
-- `crates/`: product code split by layer
-- `skills/system/`: bundled Codex skills for ML workflows
-- `helpers/`: local helper runtimes used by ML-oriented skills
-- `docs/`: product docs, flows, and test plan
+For this private repo, export a GitHub token first:
 
-Helper runtime highlights:
+```bash
+export GITHUB_TOKEN=...
+```
 
-- `helpers/python/`: stable `python3 -m mli_helpers.artifacts.write_*` commands for dataset audits, paper reports, and job snapshots
-- `helpers/node/`: valid ESM helper package with `src/index.mjs` plus `lint` / `smoke` scripts for JS-native helper cases that are awkward in Python
+Then run:
 
-## Run
+```bash
+curl -fsSL \
+  -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+  -H "Accept: application/vnd.github.raw" \
+  "https://api.github.com/repos/BetterAndBetterII/ml-intern-codex/contents/scripts/install-remote.sh?ref=main" \
+  | bash
+```
 
-- `ml-intern`: starts the default terminal client. Interactive TTYs use the full-screen event-driven UI; non-TTY runs fall back to the frozen line-mode client for deterministic scripting.
-- `ml-intern --line-mode`: forces the legacy line-mode client for app-server debugging or transcript-oriented smoke tests.
-- `ml-intern-app-server`: starts the local JSONL wrapper server.
+What it does:
 
-## Current status
+- clones or updates the repo into `~/.local/share/ml-intern-codex`
+- installs Rust if missing
+- installs `ml-intern` and `ml-intern-app-server`
+- prepares repo-local `.agents/skills`
 
-See `docs/IMPLEMENTATION_STATUS.md` for implemented slices, known gaps, and validation notes.
+## Local install from clone
+
+If you already cloned the repo:
+
+```bash
+./scripts/install.sh
+```
+
+If `ml-intern` is still not found after install, open a new shell or run:
+
+```bash
+. "$HOME/.cargo/env"
+```
+
+## Quick Start
+
+Start the TUI:
+
+```bash
+ml-intern
+```
+
+Useful first commands inside the app:
+
+- `$` — open the skill picker
+- `/skills` — list skills
+- `/threads` — resume a thread
+- `/artifacts` — browse saved artifacts
+- `/help` — show keybindings
+
+Start the local app-server directly:
+
+```bash
+ml-intern-app-server
+```
+
+## Development
+
+Run the workspace tests:
+
+```bash
+cargo test --workspace
+```
+
+See `docs/IMPLEMENTATION_STATUS.md` for implementation notes and current validation status.
