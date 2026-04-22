@@ -1,0 +1,19 @@
+[package]
+name = "mli-services"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "mli_services"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+dirs.workspace = true
+mli-artifacts.workspace = true
+mli-config.workspace = true
+mli-repo.workspace = true
+mli-skills.workspace = true
+mli-types.workspace = true

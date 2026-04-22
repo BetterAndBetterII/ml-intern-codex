@@ -953,21 +953,16 @@ impl TranscriptApp {
                         };
                     }
                 }
-                self.push_status(&format!("Thread status: {:?}", params.thread.status));
             }
             ServerNotification::TurnStarted { params } => {
                 self.active_turn_id = Some(params.turn.id);
                 self.state.connection = ConnectionState::Streaming;
             }
-            ServerNotification::TurnCompleted { params } => {
+            ServerNotification::TurnCompleted { params: _ } => {
                 self.active_turn_id = None;
                 self.state.approvals.pending = None;
                 self.state.connection = ConnectionState::Ready;
                 finalize_streaming_cells(&mut self.state);
-                self.push_status(&format!(
-                    "Turn completed with status {:?}",
-                    params.turn.status
-                ));
             }
             ServerNotification::PlanUpdated { params } => {
                 self.state
@@ -978,22 +973,18 @@ impl TranscriptApp {
                     }));
             }
             ServerNotification::ItemStarted { params } => {
-                if !push_projected_item_cells(
+                let _ = push_projected_item_cells(
                     &mut self.state,
                     &params.item,
                     ProjectedItemPhase::Started,
-                ) {
-                    self.push_status(&format!("Item started: {}", params.item));
-                }
+                );
             }
             ServerNotification::ItemCompleted { params } => {
-                if !push_projected_item_cells(
+                let _ = push_projected_item_cells(
                     &mut self.state,
                     &params.item,
                     ProjectedItemPhase::Completed,
-                ) {
-                    self.push_status(&format!("Item completed: {}", params.item));
-                }
+                );
             }
             ServerNotification::AgentMessageDelta { params } => {
                 match self.state.transcript.history.last_mut() {
@@ -1026,7 +1017,7 @@ impl TranscriptApp {
                 push_artifact_event_cell(&mut self.state, params.manifest, params.preview, true);
             }
             ServerNotification::RuntimeStatusChanged { params } => {
-                self.push_status(&format!("Runtime status: {}", params.status));
+                let _ = params;
             }
             ServerNotification::SkillsChanged { params } => {
                 self.push_status(&format!("Skills changed ({} total)", params.skills.len()));
@@ -1108,6 +1099,7 @@ impl TranscriptApp {
         self.state.transcript.history.clear();
     }
 
+    #[allow(dead_code)]
     pub(crate) fn active_turn_id(&self) -> Option<mli_types::LocalTurnId> {
         self.active_turn_id
     }
@@ -1139,6 +1131,7 @@ impl TranscriptApp {
         Ok(result.artifacts)
     }
 
+    #[allow(dead_code)] // used by forthcoming artifact viewer overlay
     pub(crate) fn read_artifact(
         &mut self,
         artifact_id: mli_types::ArtifactId,
@@ -1642,7 +1635,7 @@ pub fn run_line_mode_tui(app_server_bin: Option<PathBuf>) -> Result<()> {
 
 pub fn run_default_tui(app_server_bin: Option<PathBuf>) -> Result<()> {
     if io::stdin().is_terminal() && io::stdout().is_terminal() {
-        return crate::fullscreen::run_fullscreen_tui(app_server_bin);
+        return crate::inline_tui::run_inline_tui(app_server_bin);
     }
     run_line_mode_tui(app_server_bin)
 }
@@ -1781,14 +1774,9 @@ fn restore_upstream_event(state: &mut AppState, payload: &serde_json::Value) {
             .and_then(|value| value.as_str())
             .map(projected_item_phase_from_event)
             .unwrap_or_else(|| infer_projected_item_phase(item));
-        if push_projected_item_cells(state, item, phase) {
+        if push_projected_item_cells(state, item, phase) || is_ignorable_transcript_item(item) {
             return;
         }
-        let label = match phase {
-            ProjectedItemPhase::Started => "restored item started",
-            ProjectedItemPhase::Completed => "restored item completed",
-        };
-        push_status_cell(state, &format!("{label}: {}", compact_json(item)));
         return;
     }
 
@@ -2093,6 +2081,13 @@ fn push_projected_item_cells(
         }
         _ => false,
     }
+}
+
+fn is_ignorable_transcript_item(item: &serde_json::Value) -> bool {
+    matches!(
+        item.get("type").and_then(|value| value.as_str()),
+        Some("userMessage" | "agentMessage")
+    )
 }
 
 fn summarize_command_output(aggregated_output: Option<String>, status: Option<&str>) -> String {
@@ -3385,7 +3380,7 @@ mod tests {
         }
         assert!(matches!(
             app.state.transcript.history.last(),
-            Some(HistoryCellModel::Status(_))
+            Some(HistoryCellModel::AssistantMessage(_))
         ));
     }
 

@@ -1,0 +1,23 @@
+[package]
+name = "mli-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "mli_runtime"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+mli-artifacts.workspace = true
+mli-codex-bridge.workspace = true
+mli-config.workspace = true
+mli-protocol.workspace = true
+mli-repo.workspace = true
+mli-services.workspace = true
+mli-types.workspace = true
+mli-upstream-protocol.workspace = true
+serde.workspace = true
+serde_json.workspace = true

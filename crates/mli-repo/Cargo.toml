@@ -1,0 +1,18 @@
+[package]
+name = "mli-repo"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "mli_repo"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+mli-config.workspace = true
+mli-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+walkdir.workspace = true

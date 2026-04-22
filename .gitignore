@@ -1,0 +1,7 @@
+/target
+/.ml-intern
+/.codexpotter
+/helpers/python/.venv
+/helpers/node/node_modules
+.DS_Store
+/.codex

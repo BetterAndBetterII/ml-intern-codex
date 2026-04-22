@@ -577,7 +577,7 @@ fn ml_intern_fullscreen_utf8_prompt_smoke_reaches_upstream() {
         output.output
     );
     assert!(output.output.contains("你好 数据集"));
-    assert!(output.output.contains("assistant> skill payload captured"));
+    assert!(output.output.contains("skill payload captured"));
 
     let capture_lines = env.read_capture_lines();
     let turn_start = capture_lines
@@ -611,9 +611,9 @@ fn ml_intern_fullscreen_skill_picker_overlay_smoke_selects_skill_and_forwards_tu
     assert!(output.output.contains("Skills"));
     assert!(output.output.contains("Esc close, Enter select"));
     assert!(output.output.contains("ml-runtime-conventions"));
-    assert!(output.output.contains("Selected skill:"));
-    assert!(output.output.contains("$ml-runtime-conventions"));
-    assert!(output.output.contains("assistant> skill payload captured"));
+    assert!(output.output.contains("selected skill"));
+    assert!(output.output.contains("ml-runtime-conventions"));
+    assert!(output.output.contains("skill payload captured"));
 
     let capture_lines = env.read_capture_lines();
     let turn_start = capture_lines
@@ -699,11 +699,7 @@ fn ml_intern_fullscreen_request_user_input_overlay_smoke_collects_answers() {
     assert!(output.output.contains("Follow-up"));
     assert!(output.output.contains("Secret input is masked locally."));
     assert!(!output.output.contains("needs shuffle before training"));
-    assert!(
-        output
-            .output
-            .contains("assistant> dataset answers captured")
-    );
+    assert!(output.output.contains("dataset answers captured"));
 
     let capture_lines = env.read_capture_lines();
     assert_eq!(capture_lines.len(), 1);
@@ -749,8 +745,8 @@ fn ml_intern_fullscreen_thread_picker_overlay_smoke_restores_saved_transcript() 
     assert!(output.output.contains("Threads"));
     assert!(output.output.contains("Esc close, Enter resume"));
     assert!(output.output.contains("resume smoke seed prompt"));
-    assert!(output.output.contains("you> resume smoke seed prompt"));
-    assert!(output.output.contains("assistant> hello from fake codex"));
+    assert!(output.output.contains("you resume smoke seed prompt"));
+    assert!(output.output.contains("hello from fake codex"));
 
     let capture_lines = env.read_capture_lines();
     assert!(
@@ -844,13 +840,11 @@ fn ml_intern_fullscreen_interrupt_smoke_uses_escape_and_returns_ready() {
         "ml-intern PTY fullscreen interrupt smoke failed:\n{}",
         output.output
     );
-    assert!(output.output.contains("you> interrupt me"));
+    assert!(output.output.contains("you interrupt me"));
     assert!(output.output.contains("still working"));
-    assert!(output.output.contains("status> Interrupt requested."));
-    assert!(output.output.contains("status> Turn completed with status"));
-    assert!(output.output.contains("Thread status: Interrupted"));
+    assert!(output.output.contains("Interrupt requested."));
     assert!(
-        output.output.matches("conn: Ready").count() >= 2,
+        output.output.matches("Ready overlays none").count() >= 2,
         "expected fullscreen connection to return to Ready after interrupt:\n{}",
         output.output
     );
@@ -887,10 +881,9 @@ fn ml_intern_fullscreen_help_overlay_interrupt_smoke_prioritizes_live_interrupt(
     );
     assert!(output.output.contains("still working"));
     assert!(output.output.contains("Tab opens this help overlay."));
-    assert!(output.output.contains("status> Interrupt requested."));
-    assert!(output.output.contains("Thread status: Interrupted"));
+    assert!(output.output.contains("Interrupt requested."));
     assert!(
-        output.output.matches("conn: Ready").count() >= 2,
+        output.output.matches("Ready overlays none").count() >= 2,
         "expected fullscreen connection to return to Ready after interrupting over help overlay:\n{}",
         output.output
     );
@@ -955,10 +948,10 @@ fn ml_intern_fullscreen_busy_commands_smoke_require_interrupt_before_opening_pic
         output.output
     );
     assert!(output.output.contains("still working"));
-    assert!(output.output.contains("warning> Interrupt the active turn"));
+    assert!(output.output.contains("Interrupt the active turn"));
     assert!(output.output.contains("before running /threads."));
-    assert!(!output.output.contains("Esc close, Enter resume"));
-    assert!(output.output.contains("Thread status: Interrupted"));
+    assert!(!output.output.contains("Enter resume"));
+    assert!(output.output.contains("Interrupt requested."));
 }
 
 #[cfg(unix)]
@@ -972,14 +965,9 @@ fn ml_intern_interrupt_smoke_uses_tty_escape_watcher_and_returns_ready() {
         "ml-intern PTY interrupt smoke failed:\n{}",
         output.output
     );
-    assert!(output.output.contains("you> interrupt me"));
-    assert!(output.output.contains("assistant> still working"));
+    assert!(output.output.contains("interrupt me"));
+    assert!(output.output.contains("still working"));
     assert!(output.output.contains("status> Interrupt requested."));
-    assert!(
-        output
-            .output
-            .contains("status> Turn completed with status Interrupted")
-    );
     assert!(
         output.output.matches("connection: Ready").count() >= 2,
         "expected connection to return to Ready after interrupt:\n{}",
@@ -2093,7 +2081,7 @@ fn run_ml_intern_fullscreen_prompt_with_pty(env: &TestEnv, prompt: &str) -> PtyR
                 "fullscreen ready banner",
             ),
             PtyInputStep::new(
-                "assistant> skill payload captured",
+                "skill payload captured",
                 "/quit\r",
                 "fullscreen UTF-8 prompt completion",
             ),
@@ -2118,12 +2106,12 @@ fn run_ml_intern_fullscreen_skill_picker_with_pty(env: &TestEnv, prompt: &str) -
                 "fullscreen skill picker filtered",
             ),
             PtyInputStep::new(
-                "$ml-runtime-conventions",
+                "selected skill",
                 format!("{prompt}\r"),
                 "fullscreen skill selected",
             ),
             PtyInputStep::new(
-                "assistant> skill payload captured",
+                "skill payload captured",
                 "/quit\r",
                 "fullscreen skill prompt completion",
             ),
@@ -2176,14 +2164,9 @@ fn run_ml_intern_fullscreen_thread_picker_with_pty(env: &TestEnv, filter: &str) 
                 "fullscreen thread picker filtered",
             ),
             PtyInputStep::new(
-                "Thread status: Idle",
-                "\u{1b}[5~",
-                "fullscreen thread resumed",
-            ),
-            PtyInputStep::new(
-                "assistant> hello from fake codex",
+                "hello from fake codex",
                 "\u{3}",
-                "fullscreen transcript scrolled to restored assistant cell",
+                "fullscreen thread resumed",
             ),
         ],
     )
@@ -2214,7 +2197,7 @@ fn run_ml_intern_fullscreen_request_user_input_with_pty(
                 "fullscreen request_user_input follow-up question",
             ),
             PtyInputStep::new(
-                "assistant> dataset answers captured",
+                "dataset answers captured",
                 "/quit\r",
                 "fullscreen request_user_input completion",
             ),
@@ -2305,7 +2288,7 @@ fn run_ml_intern_fullscreen_interrupt_with_pty(env: &TestEnv, prompt: &str) -> P
                 "fullscreen streaming assistant output",
             ),
             PtyInputStep::new(
-                "Thread status: Interrupted",
+                "Interrupt requested.",
                 "\u{3}",
                 "fullscreen returned ready after interrupt",
             ),
@@ -2337,7 +2320,7 @@ fn run_ml_intern_fullscreen_help_overlay_interrupt_with_pty(
                 "fullscreen help overlay opened",
             ),
             PtyInputStep::new(
-                "Thread status: Interrupted",
+                "Interrupt requested.",
                 "\u{3}",
                 "fullscreen returned ready after help-overlay interrupt",
             ),
@@ -2393,12 +2376,12 @@ fn run_ml_intern_fullscreen_busy_command_with_pty(env: &TestEnv, prompt: &str) -
                 "fullscreen streaming assistant output",
             ),
             PtyInputStep::new(
-                "warning> Interrupt the active turn",
+                "Interrupt the active turn before running /threads.",
                 "\u{1b}",
                 "fullscreen busy command warning",
             ),
             PtyInputStep::new(
-                "Thread status: Interrupted",
+                "Interrupt requested.",
                 "\u{3}",
                 "fullscreen returned ready after busy-command interrupt",
             ),
@@ -2530,24 +2513,6 @@ fn run_ml_intern_interrupt_with_pty(env: &TestEnv, prompt: &str) -> PtyRunOutput
         0,
         Duration::from_secs(5),
         "interrupt request status",
-    );
-    wait_for_script_output(
-        &stdout_log,
-        &stderr_log,
-        &mut child,
-        "status> Turn completed with status Interrupted",
-        0,
-        Duration::from_secs(5),
-        "interrupt completion status",
-    );
-    wait_for_script_output(
-        &stdout_log,
-        &stderr_log,
-        &mut child,
-        "status> Thread status: Interrupted",
-        0,
-        Duration::from_secs(5),
-        "thread interrupted status",
     );
 
     thread::sleep(Duration::from_millis(200));

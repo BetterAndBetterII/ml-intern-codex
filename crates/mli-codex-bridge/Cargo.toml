@@ -1,0 +1,17 @@
+[package]
+name = "mli-codex-bridge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "mli_codex_bridge"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow.workspace = true
+mli-config.workspace = true
+mli-upstream-protocol.workspace = true
+mli-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true

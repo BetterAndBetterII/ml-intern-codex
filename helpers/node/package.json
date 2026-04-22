@@ -1,0 +1,12 @@
+{
+  "name": "mli-helpers-node",
+  "version": "0.1.0",
+  "description": "Node helper entrypoints for ml-intern-codex",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.mjs",
+  "scripts": {
+    "lint": "node --check src/index.mjs",
+    "smoke": "node --input-type=module --eval \"import { helperSummary } from './src/index.mjs'; console.log(helperSummary());\""
+  }
+}
