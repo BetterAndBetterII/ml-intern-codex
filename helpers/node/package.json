@@ -1,6 +1,6 @@
 {
   "name": "mli-helpers-node",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Node helper entrypoints for ml-intern-codex",
   "private": true,
   "type": "module",
