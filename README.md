@@ -23,28 +23,18 @@ codex --version
 
 ## One-line install
 
-For this private repo, export a GitHub token first:
-
-```bash
-export GITHUB_TOKEN=...
-```
-
-Then run:
+Latest release install:
 
 ```bash
 curl -fsSL \
-  -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-  -H "Accept: application/vnd.github.raw" \
-  "https://api.github.com/repos/BetterAndBetterII/ml-intern-codex/contents/scripts/install-remote.sh?ref=main" \
+  https://raw.githubusercontent.com/BetterAndBetterII/ml-intern-codex/main/scripts/install-remote.sh \
   | bash
 ```
 
-What it does:
+This downloads the latest GitHub release for your platform and installs:
 
-- resolves the latest GitHub release
-- downloads the matching release bundle for your platform
-- installs it into `~/.local/share/ml-intern-codex`
-- writes launchers into `~/.local/bin`
+- release files into `~/.local/share/ml-intern-codex`
+- launchers into `~/.local/bin`
 
 ## Local install from clone
 
