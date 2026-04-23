@@ -66,13 +66,6 @@ impl RuntimeEnvironmentService for LocalRuntimeEnvironmentService {
             .last()
             .ok_or_else(|| anyhow!("unable to parse codex version from `{stdout}`"))?
             .to_owned();
-        if version != self.config.codex.expected_version {
-            return Err(anyhow!(
-                "expected codex-cli {}, found {}",
-                self.config.codex.expected_version,
-                version
-            ));
-        }
         Ok(version)
     }
 
@@ -487,7 +480,7 @@ mod tests {
     }
 
     #[test]
-    fn validate_codex_version_accepts_expected_version() {
+    fn validate_codex_version_returns_detected_version() {
         let _lock = test_lock();
         let root = temp_dir("version-ok");
         let paths = app_paths(&root);
@@ -504,25 +497,20 @@ mod tests {
     }
 
     #[test]
-    fn validate_codex_version_rejects_mismatch() {
+    fn validate_codex_version_allows_newer_version() {
         let _lock = test_lock();
         let root = temp_dir("version-mismatch");
         let paths = app_paths(&root);
-        let fake_codex = fake_codex(&root, "0.119.0");
+        let fake_codex = fake_codex(&root, "0.121.0");
         let mut config = AppConfig::default();
         config.codex.bin_path = fake_codex;
         let service = LocalRuntimeEnvironmentService::new(config, paths);
 
-        let error = service
+        let version = service
             .validate_codex_version()
-            .err()
-            .unwrap_or_else(|| panic!("expected mismatch error"));
+            .unwrap_or_else(|error| panic!("validate newer version: {error}"));
 
-        assert!(
-            error
-                .to_string()
-                .contains("expected codex-cli 0.120.0, found 0.119.0")
-        );
+        assert_eq!(version, "0.121.0");
     }
 
     #[test]

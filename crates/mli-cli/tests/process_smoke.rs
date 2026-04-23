@@ -427,18 +427,19 @@ fn ml_intern_startup_smoke_renders_ready_banner_and_exits_cleanly() {
 }
 
 #[test]
-fn ml_intern_startup_failure_surfaces_version_mismatch() {
+fn ml_intern_startup_allows_version_mismatch() {
     let env = TestEnv::new("tui-version-mismatch", FakeCodexScenario::VersionMismatch);
-    let output = run_ml_intern_with_input(&env, "");
+    let output = run_ml_intern_with_input(&env, "/quit\n");
     assert!(
-        !output.status.success(),
-        "expected ml-intern startup to fail when codex version mismatches"
+        output.status.success(),
+        "expected ml-intern startup to allow codex version mismatch: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
 
-    let stderr = String::from_utf8(output.stderr)
-        .unwrap_or_else(|error| panic!("decode version-mismatch stderr: {error}"));
-    assert!(stderr.contains("app-server closed unexpectedly"));
-    assert!(stderr.contains("expected codex-cli 0.120.0, found 0.119.0"));
+    let stdout = String::from_utf8(output.stdout)
+        .unwrap_or_else(|error| panic!("decode version-mismatch stdout: {error}"));
+    assert!(stdout.contains("codex: 0.119.0"));
+    assert!(stdout.contains("Ready. Enter a prompt or use /help."));
 }
 
 #[test]

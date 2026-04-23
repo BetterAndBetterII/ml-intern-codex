@@ -11,8 +11,9 @@
 
 - `codex` on `PATH`
 - a working local Codex auth/config under `~/.codex`
-- `git`
 - `curl`
+- `tar`
+- `python3`
 
 Quick check:
 
@@ -40,10 +41,10 @@ curl -fsSL \
 
 What it does:
 
-- clones or updates the repo into `~/.local/share/ml-intern-codex`
-- installs Rust if missing
-- installs `ml-intern` and `ml-intern-app-server`
-- prepares repo-local `.agents/skills`
+- resolves the latest GitHub release
+- downloads the matching release bundle for your platform
+- installs it into `~/.local/share/ml-intern-codex`
+- writes launchers into `~/.local/bin`
 
 ## Local install from clone
 

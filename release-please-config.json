@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "packages": {
+    ".": {
+      "release-type": "simple",
+      "package-name": "ml-intern-codex",
+      "include-v-in-tag": true,
+      "extra-files": [
+        "Cargo.toml",
+        "helpers/python/pyproject.toml",
+        "helpers/node/package.json"
+      ]
+    }
+  }
+}
+
