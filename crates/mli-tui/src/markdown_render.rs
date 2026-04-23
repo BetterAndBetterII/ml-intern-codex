@@ -1003,4 +1003,5 @@ mod tests {
         let lines = rendered_lines("first line  \nsecond line", Some(80));
         assert_eq!(lines, vec!["first line", "second line"]);
     }
+
 }
