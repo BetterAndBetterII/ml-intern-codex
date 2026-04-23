@@ -91,11 +91,7 @@ pub fn build_startup_banner_lines(
 }
 
 fn pick_art(width: u16) -> &'static [&'static str] {
-    let full_w = ANSI_SHADOW
-        .iter()
-        .map(|l| l.width())
-        .max()
-        .unwrap_or(0) as u16;
+    let full_w = ANSI_SHADOW.iter().map(|l| l.width()).max().unwrap_or(0) as u16;
     let compact_w = PAGGA.iter().map(|l| l.width()).max().unwrap_or(0) as u16;
     if width >= FULL_BANNER_MIN_WIDTH && width >= full_w {
         ANSI_SHADOW
@@ -213,12 +209,8 @@ mod tests {
 
     #[test]
     fn model_label_rendered_when_present() {
-        let lines = build_startup_banner_lines(
-            120,
-            "0.1.0",
-            &PathBuf::from("/tmp"),
-            Some("codex 0.120.0"),
-        );
+        let lines =
+            build_startup_banner_lines(120, "0.1.0", &PathBuf::from("/tmp"), Some("codex 0.120.0"));
         let info_line = &lines[lines.len() - 2];
         let text: String = info_line.spans.iter().map(|s| s.content.clone()).collect();
         assert!(text.contains("codex 0.120.0"));

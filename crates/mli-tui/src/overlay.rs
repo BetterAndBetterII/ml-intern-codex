@@ -5,9 +5,7 @@
 use std::collections::BTreeMap;
 
 use mli_protocol::{ApprovalAnswer, ApprovalDecision, ApprovalRespondParams};
-use mli_types::{
-    ApprovalKind, ArtifactManifest, PendingApproval, SkillDescriptor, ThreadListItem,
-};
+use mli_types::{ApprovalKind, ArtifactManifest, PendingApproval, SkillDescriptor, ThreadListItem};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -15,9 +13,10 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Widget, Wrap};
 
 use crate::app::{
-    ApprovalQuestion, ApprovalQuestionPayload, describe_skill, filter_artifacts,
-    filter_skills, filter_threads,
+    ApprovalQuestion, ApprovalQuestionPayload, describe_skill, filter_artifacts, filter_skills,
+    filter_threads,
 };
+use crate::completion::SLASH_COMMANDS;
 
 pub enum Overlay {
     Help,
@@ -76,10 +75,9 @@ impl Overlay {
     pub fn for_pending_approval(approval: PendingApproval) -> Self {
         match approval.kind {
             ApprovalKind::RequestUserInput => {
-                let payload = serde_json::from_value::<ApprovalQuestionPayload>(
-                    approval.raw_payload.clone(),
-                )
-                .ok();
+                let payload =
+                    serde_json::from_value::<ApprovalQuestionPayload>(approval.raw_payload.clone())
+                        .ok();
                 let questions = payload.map(|p| p.questions).unwrap_or_default();
                 if questions.is_empty() {
                     Overlay::ApprovalYesNo {
@@ -112,14 +110,12 @@ pub fn render(area: Rect, buf: &mut Buffer, overlay: &Overlay) {
     Clear.render(area, buf);
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(Line::from(vec![
-            Span::styled(
-                format!(" {} ", overlay.title()),
-                Style::default()
-                    .fg(Color::LightCyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ]))
+        .title(Line::from(vec![Span::styled(
+            format!(" {} ", overlay.title()),
+            Style::default()
+                .fg(Color::LightCyan)
+                .add_modifier(Modifier::BOLD),
+        )]))
         .border_style(Style::default().fg(Color::DarkGray));
     let inner = block.inner(area);
     block.render(area, buf);
@@ -147,7 +143,11 @@ pub fn render(area: Rect, buf: &mut Buffer, overlay: &Overlay) {
             *input_cursor,
             *option_cursor,
         ),
-        Overlay::SkillPicker { skills, query, cursor } => {
+        Overlay::SkillPicker {
+            skills,
+            query,
+            cursor,
+        } => {
             let filtered = filter_skills(skills, Some(query.as_str()));
             let rows: Vec<Line> = filtered
                 .iter()
@@ -158,7 +158,11 @@ pub fn render(area: Rect, buf: &mut Buffer, overlay: &Overlay) {
                 .collect();
             render_picker(inner, buf, query, &rows, *cursor);
         }
-        Overlay::ThreadPicker { threads, query, cursor } => {
+        Overlay::ThreadPicker {
+            threads,
+            query,
+            cursor,
+        } => {
             let filtered = filter_threads(threads, Some(query.as_str()));
             let rows: Vec<Line> = filtered
                 .iter()
@@ -169,7 +173,10 @@ pub fn render(area: Rect, buf: &mut Buffer, overlay: &Overlay) {
                     let marker = if item.selected { "◎ " } else { "  " };
                     Line::from(vec![
                         Span::raw(marker.to_string()),
-                        Span::styled(title.to_string(), Style::default().add_modifier(Modifier::BOLD)),
+                        Span::styled(
+                            title.to_string(),
+                            Style::default().add_modifier(Modifier::BOLD),
+                        ),
                         Span::raw("  "),
                         Span::styled(status, Style::default().fg(Color::DarkGray)),
                         Span::raw("  "),
@@ -179,7 +186,11 @@ pub fn render(area: Rect, buf: &mut Buffer, overlay: &Overlay) {
                 .collect();
             render_picker(inner, buf, query, &rows, *cursor);
         }
-        Overlay::ArtifactPicker { artifacts, query, cursor } => {
+        Overlay::ArtifactPicker {
+            artifacts,
+            query,
+            cursor,
+        } => {
             let filtered = filter_artifacts(artifacts, Some(query.as_str()));
             let rows: Vec<Line> = filtered
                 .iter()
@@ -205,17 +216,14 @@ pub fn render(area: Rect, buf: &mut Buffer, overlay: &Overlay) {
 }
 
 fn render_help(area: Rect, buf: &mut Buffer) {
-    let lines = vec![
-        Line::from("Commands"),
-        Line::from("  /skills     select a skill"),
-        Line::from("  /threads    resume a thread"),
-        Line::from("  /artifacts  browse artifacts"),
-        Line::from("  /approval   retry a deferred approval"),
-        Line::from("  /yolo       toggle danger-full-access + no approvals"),
-        Line::from("  /mode       set safe | readonly | yolo defaults"),
-        Line::from("  /clear      clear the transcript"),
-        Line::from("  /help       this help"),
-        Line::from("  /quit       exit"),
+    let mut lines = vec![Line::from("Commands")];
+    for command in SLASH_COMMANDS {
+        lines.push(Line::from(format!(
+            "  {:<11} {}",
+            command.name, command.description
+        )));
+    }
+    lines.extend([
         Line::from(""),
         Line::from("Keys"),
         Line::from("  Enter          submit prompt"),
@@ -225,7 +233,7 @@ fn render_help(area: Rect, buf: &mut Buffer) {
         Line::from(""),
         Line::from("Tips"),
         Line::from("  type `$skill-name …` to use a skill just for this turn"),
-    ];
+    ]);
     Paragraph::new(lines)
         .wrap(Wrap { trim: false })
         .render(area, buf);
@@ -314,7 +322,9 @@ fn render_approval_questionnaire(
     if let Some(q) = questions.get(current_index) {
         lines.push(Line::from(vec![Span::styled(
             q.header.clone(),
-            Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::LightCyan)
+                .add_modifier(Modifier::BOLD),
         )]));
         lines.push(Line::from(q.question.clone()));
         lines.push(Line::from(""));
@@ -329,11 +339,20 @@ fn render_approval_questionnaire(
                     Style::default()
                 };
                 lines.push(Line::from(vec![
-                    Span::styled(format!(" {} ", if idx == option_cursor { "›" } else { " " }), style),
+                    Span::styled(
+                        format!(" {} ", if idx == option_cursor { "›" } else { " " }),
+                        style,
+                    ),
                     Span::raw(" "),
-                    Span::styled(opt.label.clone(), Style::default().add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        opt.label.clone(),
+                        Style::default().add_modifier(Modifier::BOLD),
+                    ),
                     Span::raw("  "),
-                    Span::styled(opt.description.clone(), Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        opt.description.clone(),
+                        Style::default().fg(Color::DarkGray),
+                    ),
                 ]));
             }
             if q.is_other {
@@ -350,12 +369,16 @@ fn render_approval_questionnaire(
         lines.push(Line::from(vec![
             Span::styled(
                 "› ",
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::raw(input_buffer.to_string()),
             Span::styled(
                 "│",
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             ),
         ]));
     }
@@ -370,14 +393,13 @@ fn render_picker(area: Rect, buf: &mut Buffer, query: &str, rows: &[Line<'_>], c
         .constraints([Constraint::Length(2), Constraint::Min(1)])
         .split(area);
     let query_line = Line::from(vec![
-        Span::styled(
-            "filter › ",
-            Style::default().fg(Color::DarkGray),
-        ),
+        Span::styled("filter › ", Style::default().fg(Color::DarkGray)),
         Span::raw(query.to_string()),
         Span::styled(
             "│",
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
         ),
     ]);
     Paragraph::new(vec![query_line, Line::from("")]).render(chunks[0], buf);
@@ -484,7 +506,11 @@ pub fn handle_key(overlay: &mut Overlay, key: KeyEvent) -> OverlayOutcome {
             input_cursor,
             option_cursor,
         ),
-        Overlay::SkillPicker { skills, query, cursor } => {
+        Overlay::SkillPicker {
+            skills,
+            query,
+            cursor,
+        } => {
             let query_snapshot = query.clone();
             let filtered: Vec<SkillDescriptor> =
                 filter_skills(skills, Some(query_snapshot.as_str()))
@@ -496,7 +522,11 @@ pub fn handle_key(overlay: &mut Overlay, key: KeyEvent) -> OverlayOutcome {
                 filtered.get(idx).cloned().map(OverlayOutcome::SelectSkill)
             })
         }
-        Overlay::ThreadPicker { threads, query, cursor } => {
+        Overlay::ThreadPicker {
+            threads,
+            query,
+            cursor,
+        } => {
             let query_snapshot = query.clone();
             let filtered: Vec<mli_types::LocalThreadId> =
                 filter_threads(threads, Some(query_snapshot.as_str()))
@@ -508,7 +538,11 @@ pub fn handle_key(overlay: &mut Overlay, key: KeyEvent) -> OverlayOutcome {
                 filtered.get(idx).copied().map(OverlayOutcome::ResumeThread)
             })
         }
-        Overlay::ArtifactPicker { artifacts, query, cursor } => {
+        Overlay::ArtifactPicker {
+            artifacts,
+            query,
+            cursor,
+        } => {
             let query_snapshot = query.clone();
             let filtered: Vec<mli_types::ArtifactId> =
                 filter_artifacts(artifacts, Some(query_snapshot.as_str()))

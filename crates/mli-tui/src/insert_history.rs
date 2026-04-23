@@ -166,8 +166,14 @@ where
         queue!(
             writer,
             SetColors(Colors::new(
-                line.style.fg.map(to_crossterm_color).unwrap_or(CColor::Reset),
-                line.style.bg.map(to_crossterm_color).unwrap_or(CColor::Reset)
+                line.style
+                    .fg
+                    .map(to_crossterm_color)
+                    .unwrap_or(CColor::Reset),
+                line.style
+                    .bg
+                    .map(to_crossterm_color)
+                    .unwrap_or(CColor::Reset)
             ))
         )?;
         queue!(writer, Clear(ClearType::UntilNewLine))?;
@@ -328,7 +334,10 @@ where
         if next_fg != fg || next_bg != bg {
             queue!(
                 writer,
-                SetColors(Colors::new(to_crossterm_color(next_fg), to_crossterm_color(next_bg)))
+                SetColors(Colors::new(
+                    to_crossterm_color(next_fg),
+                    to_crossterm_color(next_bg)
+                ))
             )?;
             fg = next_fg;
             bg = next_bg;

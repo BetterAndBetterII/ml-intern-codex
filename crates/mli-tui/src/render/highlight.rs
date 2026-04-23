@@ -21,8 +21,7 @@ pub fn exceeds_highlight_limits(total_bytes: usize, total_lines: usize) -> bool 
 }
 
 pub fn highlight_code_to_lines(code: &str, _lang: &str) -> Vec<Line<'static>> {
-    let mut result: Vec<Line<'static>> =
-        code.lines().map(|l| Line::from(l.to_string())).collect();
+    let mut result: Vec<Line<'static>> = code.lines().map(|l| Line::from(l.to_string())).collect();
     if result.is_empty() {
         result.push(Line::from(String::new()));
     }
@@ -33,10 +32,7 @@ pub fn highlight_bash_to_lines(script: &str) -> Vec<Line<'static>> {
     highlight_code_to_lines(script, "bash")
 }
 
-pub fn highlight_code_to_styled_spans(
-    _code: &str,
-    _lang: &str,
-) -> Option<Vec<Vec<Span<'static>>>> {
+pub fn highlight_code_to_styled_spans(_code: &str, _lang: &str) -> Option<Vec<Vec<Span<'static>>>> {
     None
 }
 

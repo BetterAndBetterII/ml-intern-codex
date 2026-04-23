@@ -55,12 +55,19 @@ pub struct BottomPaneLayout {
 pub fn desired_height(props: &BottomPaneProps, width: u16) -> u16 {
     let width = width.max(1);
     let status_rows = if show_status_row(props) { 1 } else { 0 };
-    let approval_rows = if props.pending_approval.is_some() { 2 } else { 0 };
+    let approval_rows = if props.pending_approval.is_some() {
+        2
+    } else {
+        0
+    };
     let inner_cols = width.saturating_sub(4) as usize; // borders + left gutter
     let composer_inner = composer_inner_rows(props.composer_buffer, inner_cols);
     let composer_rows = composer_inner + 2; // borders top + bottom
     let hint_rows: u16 = 1;
-    let popup_rows = props.completion.map(completion::desired_height).unwrap_or(0);
+    let popup_rows = props
+        .completion
+        .map(completion::desired_height)
+        .unwrap_or(0);
     let total = popup_rows + status_rows + approval_rows + composer_rows + hint_rows;
     total.max(MIN_HEIGHT)
 }
@@ -71,7 +78,11 @@ pub fn render(area: Rect, buf: &mut Buffer, props: &BottomPaneProps) -> BottomPa
     }
 
     let status_rows: u16 = if show_status_row(props) { 1 } else { 0 };
-    let approval_rows: u16 = if props.pending_approval.is_some() { 2 } else { 0 };
+    let approval_rows: u16 = if props.pending_approval.is_some() {
+        2
+    } else {
+        0
+    };
     let hint_rows: u16 = 1;
     let popup_rows: u16 = props
         .completion
@@ -142,7 +153,10 @@ fn render_status(area: Rect, buf: &mut Buffer, props: &BottomPaneProps) {
         ConnectionState::Reconnecting => ("reconnecting", Color::Yellow),
     };
     let mut spans = vec![
-        Span::styled("● ", Style::default().fg(color).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "● ",
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        ),
         Span::styled(
             label.to_string(),
             Style::default().fg(color).add_modifier(Modifier::BOLD),
@@ -179,7 +193,10 @@ fn render_status(area: Rect, buf: &mut Buffer, props: &BottomPaneProps) {
     }
     if matches!(
         (props.approval_policy, props.sandbox_mode),
-        (Some(ApprovalPolicy::Never), Some(SandboxMode::DangerFullAccess))
+        (
+            Some(ApprovalPolicy::Never),
+            Some(SandboxMode::DangerFullAccess)
+        )
     ) {
         spans.push(Span::raw("  "));
         spans.push(Span::styled(
@@ -398,8 +415,7 @@ fn layout_buffer(
             let abs_byte = byte_offset + g_byte_offset;
             if !cursor_found_in_line && byte_cursor == abs_byte {
                 cursor_row = rows.len() + row_for_this_logical_line.len();
-                cursor_col =
-                    display_width_of(&current[..]).min(width);
+                cursor_col = display_width_of(&current[..]).min(width);
                 cursor_found_in_line = true;
             }
             if current_width + g_width > width && !current.is_empty() {
@@ -444,10 +460,8 @@ fn render_hint(area: Rect, buf: &mut Buffer, props: &BottomPaneProps) {
                 "enter to confirm  ·  esc to deny  ·  /quit to exit".to_string()
             }
             ConnectionState::Streaming => "ctrl+c interrupts  ·  /quit to exit".to_string(),
-            _ => {
-                "enter  send  ·  shift+enter  newline  ·  ctrl+u  clear  ·  ↑ history  ·  /help"
-                    .to_string()
-            }
+            _ => "enter  send  ·  shift+enter  newline  ·  ctrl+u  clear  ·  ↑↓ history  ·  /help"
+                .to_string(),
         });
     let style = Style::default().fg(Color::DarkGray);
     Paragraph::new(Line::from(Span::styled(text, style))).render(area, buf);

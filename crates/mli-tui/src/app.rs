@@ -15,13 +15,13 @@ use mli_protocol::{
     ApprovalAnswer, ApprovalDecision, ApprovalRespondParams, ArtifactListParams,
     ArtifactReadParams, ConfigReadResult, ConfigWriteParams, ConfigWriteResult, JsonRpcMessage,
     JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, RequestId, ServerNotification,
-    SkillsListParams, ThreadReadParams, ThreadResumeParams, ThreadStartParams,
-    TurnInterruptParams, TurnStartParams, UserInput,
+    SkillsListParams, ThreadReadParams, ThreadResumeParams, ThreadStartParams, TurnInterruptParams,
+    TurnStartParams, UserInput,
 };
 use mli_runtime::default_initialize_params;
 use mli_types::{
-    AppState, ApprovalCell, ApprovalKind, ArtifactEventCell, ArtifactFilePayload, ArtifactManifest,
-    ArtifactPreview, AssistantMessageCell, ApprovalPolicy, ComposerState, ConnectionState,
+    AppState, ApprovalCell, ApprovalKind, ApprovalPolicy, ArtifactEventCell, ArtifactFilePayload,
+    ArtifactManifest, ArtifactPreview, AssistantMessageCell, ComposerState, ConnectionState,
     ErrorCell, HistoryCellModel, SandboxMode, SkillDescriptor, StatusCell, ThreadListItem,
     UserMessageCell, WarningCell,
 };
@@ -1137,9 +1137,8 @@ impl TranscriptApp {
     }
 
     fn request_config(&mut self) -> Result<AppConfig> {
-        let result: ConfigReadResult = self
-            .client
-            .request("config/read", &serde_json::json!({}))?;
+        let result: ConfigReadResult =
+            self.client.request("config/read", &serde_json::json!({}))?;
         serde_json::from_value(result.config).context("failed to decode app config")
     }
 
@@ -1159,7 +1158,11 @@ impl TranscriptApp {
         self.state.runtime.sandbox_mode = Some(sandbox_mode);
     }
 
-    fn set_mode(&mut self, approval_policy: ApprovalPolicy, sandbox_mode: SandboxMode) -> Result<()> {
+    fn set_mode(
+        &mut self,
+        approval_policy: ApprovalPolicy,
+        sandbox_mode: SandboxMode,
+    ) -> Result<()> {
         let mut config = self.request_config()?;
         config.codex.approval_policy = approval_policy;
         config.codex.sandbox_mode = sandbox_mode;
@@ -2564,14 +2567,13 @@ mod tests {
         parse_leading_skill_token, preferred_artifact_file_index, replay_transcript_from_raw,
         restore_artifact_event, restored_active_turn_id,
     };
-    use mli_protocol::{
-        AgentMessageDeltaNotification, ApprovalDecision, ApprovalRespondParams, ConfigReadResult,
-        ConfigWriteResult,
-        ArtifactUpdatedNotification, JsonRpcError, JsonRpcErrorPayload, JsonRpcNotification,
-        JsonRpcResponse, RequestId, ServerNotification, ThreadReadResult,
-        TurnCompletedNotification,
-    };
     use mli_config::AppConfig;
+    use mli_protocol::{
+        AgentMessageDeltaNotification, ApprovalDecision, ApprovalRespondParams,
+        ArtifactUpdatedNotification, ConfigReadResult, ConfigWriteResult, JsonRpcError,
+        JsonRpcErrorPayload, JsonRpcNotification, JsonRpcResponse, RequestId, ServerNotification,
+        ThreadReadResult, TurnCompletedNotification,
+    };
     use mli_types::{
         AppState, ApprovalKind, ApprovalPolicy, ArtifactFilePayload, ArtifactId, ArtifactKind,
         ArtifactManifest, ArtifactPreview, ArtifactReadBundle, AssistantMessageCell,
@@ -2706,7 +2708,10 @@ mod tests {
         app.toggle_yolo_mode()
             .unwrap_or_else(|error| panic!("toggle yolo mode: {error}"));
 
-        assert_eq!(app.state.runtime.approval_policy, Some(ApprovalPolicy::Never));
+        assert_eq!(
+            app.state.runtime.approval_policy,
+            Some(ApprovalPolicy::Never)
+        );
         assert_eq!(
             app.state.runtime.sandbox_mode,
             Some(SandboxMode::DangerFullAccess)
@@ -2749,7 +2754,10 @@ mod tests {
         app.set_mode_command("/mode readonly")
             .unwrap_or_else(|error| panic!("set readonly mode: {error}"));
 
-        assert_eq!(app.state.runtime.approval_policy, Some(ApprovalPolicy::OnRequest));
+        assert_eq!(
+            app.state.runtime.approval_policy,
+            Some(ApprovalPolicy::OnRequest)
+        );
         assert_eq!(app.state.runtime.sandbox_mode, Some(SandboxMode::ReadOnly));
     }
 

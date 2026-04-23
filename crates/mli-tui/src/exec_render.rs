@@ -68,10 +68,17 @@ pub fn render_streaming_prelude(command: &str) -> Vec<Line<'static>> {
 /// Render a single output line with the "` └ `" or "`   `" prefix, depending
 /// on whether it is the first output line for this exec cell.
 pub fn prefix_output_line(content: &str, is_first: bool) -> Line<'static> {
-    let prefix = if is_first { OUTPUT_PREFIX_FIRST } else { OUTPUT_PREFIX_REST };
+    let prefix = if is_first {
+        OUTPUT_PREFIX_FIRST
+    } else {
+        OUTPUT_PREFIX_REST
+    };
     Line::from(vec![
         Span::styled(prefix.to_string(), Style::default().fg(Color::DarkGray)),
-        Span::styled(content.to_string(), Style::default().add_modifier(Modifier::DIM)),
+        Span::styled(
+            content.to_string(),
+            Style::default().add_modifier(Modifier::DIM),
+        ),
     ])
 }
 
@@ -132,7 +139,10 @@ fn command_body_lines(command: &str) -> Vec<Line<'static>> {
                     Style::default().fg(Color::DarkGray),
                 ),
                 Span::styled(
-                    format!("… +{omitted} more command line{}", if omitted == 1 { "" } else { "s" }),
+                    format!(
+                        "… +{omitted} more command line{}",
+                        if omitted == 1 { "" } else { "s" }
+                    ),
                     Style::default()
                         .fg(Color::DarkGray)
                         .add_modifier(Modifier::ITALIC),
@@ -145,10 +155,7 @@ fn command_body_lines(command: &str) -> Vec<Line<'static>> {
                 COMMAND_PREFIX.to_string(),
                 Style::default().fg(Color::DarkGray),
             ),
-            Span::styled(
-                raw.to_string(),
-                Style::default().fg(Color::Cyan),
-            ),
+            Span::styled(raw.to_string(), Style::default().fg(Color::Cyan)),
         ]));
     }
     out

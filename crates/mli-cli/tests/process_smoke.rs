@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use unicode_width::UnicodeWidthChar;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -345,12 +345,10 @@ fn ml_intern_app_server_jsonl_smoke_bootstraps_runtime() {
 
     let initialize = response_result(&responses, 1);
     assert_eq!(initialize["upstreamCodexVersion"].as_str(), Some("0.120.0"));
-    assert!(
-        initialize["appHome"]
-            .as_str()
-            .unwrap_or_default()
-            .ends_with(".ml-intern-codex")
-    );
+    assert!(initialize["appHome"]
+        .as_str()
+        .unwrap_or_default()
+        .ends_with(".ml-intern-codex"));
 
     let runtime_info = response_result(&responses, 2);
     let cwd_display = env.cwd.display().to_string();
@@ -499,14 +497,10 @@ fn ml_intern_skills_picker_smoke_selects_skill_and_forwards_turn_payload() {
     assert_eq!(input.len(), 2);
     assert_eq!(input[0]["type"], json!("skill"));
     assert_eq!(input[0]["name"], json!("ml-runtime-conventions"));
-    assert!(
-        input[0]["path"]
-            .as_str()
-            .is_some_and(|path| {
-                path.ends_with(".agents/skills/ml-runtime-conventions/SKILL.md")
-                    || path.ends_with("skills/system/ml-runtime-conventions/SKILL.md")
-            })
-    );
+    assert!(input[0]["path"].as_str().is_some_and(|path| {
+        path.ends_with(".agents/skills/ml-runtime-conventions/SKILL.md")
+            || path.ends_with("skills/system/ml-runtime-conventions/SKILL.md")
+    }));
     assert_eq!(
         input[1],
         json!({
@@ -565,6 +559,118 @@ fn ml_intern_fullscreen_startup_smoke_renders_event_driven_layout() {
     assert!(output.output.contains("compose"));
     assert!(output.output.contains("type a prompt"));
     assert!(output.output.contains("v0.1.0"));
+}
+
+#[cfg(unix)]
+#[test]
+fn ml_intern_fullscreen_slash_completion_smoke_lists_command_candidates() {
+    let env = TestEnv::new(
+        "tui-fullscreen-slash-completion",
+        FakeCodexScenario::StartupOnly,
+    );
+    let output = run_ml_intern_fullscreen_slash_completion_with_pty(&env);
+
+    assert_eq!(
+        output.exit_code, 0,
+        "ml-intern PTY fullscreen slash completion smoke failed:\n{}",
+        output.output
+    );
+    assert!(output.output.contains("commands"));
+    assert!(output.output.contains("/yolo"));
+    assert!(output.output.contains("9 matches"));
+}
+
+#[cfg(unix)]
+#[test]
+fn ml_intern_fullscreen_history_arrows_smoke_recall_previous_prompt() {
+    let env = TestEnv::new(
+        "tui-fullscreen-history-arrows",
+        FakeCodexScenario::SkillsTurn,
+    );
+    let output = run_ml_intern_fullscreen_history_arrows_with_pty(
+        &env,
+        "first history prompt",
+        "second history prompt",
+    );
+
+    assert_eq!(
+        output.exit_code, 0,
+        "ml-intern PTY fullscreen history arrows smoke failed:\n{}",
+        output.output
+    );
+
+    let turn_starts = env
+        .read_capture_lines()
+        .into_iter()
+        .filter(|entry| entry["kind"] == "turn_start_request")
+        .collect::<Vec<_>>();
+    assert_eq!(turn_starts.len(), 3, "expected three submitted prompts");
+
+    let submitted_texts = turn_starts
+        .iter()
+        .map(|entry| {
+            entry["payload"]["params"]["input"][0]["text"]
+                .as_str()
+                .unwrap_or_else(|| panic!("missing submitted text payload"))
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        submitted_texts,
+        vec![
+            "first history prompt".to_string(),
+            "second history prompt".to_string(),
+            "second history prompt".to_string(),
+        ]
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn ml_intern_fullscreen_resumed_thread_history_smoke_recalls_prompt_with_up_arrow() {
+    let env = TestEnv::new(
+        "tui-fullscreen-resume-history",
+        FakeCodexScenario::SkillsTurn,
+    );
+    let seed_output = run_ml_intern_fullscreen_prompt_with_pty(&env, "resume history prompt");
+    assert_eq!(
+        seed_output.exit_code, 0,
+        "ml-intern PTY fullscreen resume-history seed failed:\n{}",
+        seed_output.output
+    );
+
+    let output = run_ml_intern_fullscreen_resume_history_with_pty(&env);
+    assert_eq!(
+        output.exit_code, 0,
+        "ml-intern PTY fullscreen resumed history smoke failed:\n{}",
+        output.output
+    );
+    assert!(output.output.contains("resume history prompt"));
+
+    let capture_lines = env.read_capture_lines();
+    assert!(
+        capture_lines
+            .iter()
+            .any(|entry| entry["kind"] == "thread_resume_request"),
+        "expected a thread_resume_request in fake codex capture"
+    );
+
+    let turn_starts = capture_lines
+        .iter()
+        .filter(|entry| entry["kind"] == "turn_start_request")
+        .collect::<Vec<_>>();
+    assert_eq!(
+        turn_starts.len(),
+        2,
+        "expected seed + resumed replay prompt"
+    );
+    assert_eq!(
+        turn_starts[1]["payload"]["params"]["input"][0],
+        json!({
+            "type": "text",
+            "text": "resume history prompt"
+        })
+    );
 }
 
 #[cfg(unix)]
@@ -628,14 +734,10 @@ fn ml_intern_fullscreen_skill_picker_overlay_smoke_selects_skill_and_forwards_tu
     assert_eq!(input.len(), 2);
     assert_eq!(input[0]["type"], json!("skill"));
     assert_eq!(input[0]["name"], json!("ml-runtime-conventions"));
-    assert!(
-        input[0]["path"]
-            .as_str()
-            .is_some_and(|path| {
-                path.ends_with(".agents/skills/ml-runtime-conventions/SKILL.md")
-                    || path.ends_with("skills/system/ml-runtime-conventions/SKILL.md")
-            })
-    );
+    assert!(input[0]["path"].as_str().is_some_and(|path| {
+        path.ends_with(".agents/skills/ml-runtime-conventions/SKILL.md")
+            || path.ends_with("skills/system/ml-runtime-conventions/SKILL.md")
+    }));
     assert_eq!(
         input[1],
         json!({
@@ -2073,6 +2175,69 @@ fn run_ml_intern_fullscreen_with_pty(env: &TestEnv, command_input: &str) -> PtyR
             format!("{command_input}\r"),
             "fullscreen ready banner",
         )],
+    )
+}
+
+#[cfg(unix)]
+fn run_ml_intern_fullscreen_slash_completion_with_pty(env: &TestEnv) -> PtyRunOutput {
+    run_ml_intern_fullscreen_script_with_pty(
+        env,
+        &[
+            PtyInputStep::new("Ready. Enter a prompt or", "/", "fullscreen ready banner"),
+            PtyInputStep::new("9 matches", "\u{3}", "fullscreen slash completion popup"),
+        ],
+    )
+}
+
+#[cfg(unix)]
+fn run_ml_intern_fullscreen_history_arrows_with_pty(
+    env: &TestEnv,
+    first_prompt: &str,
+    second_prompt: &str,
+) -> PtyRunOutput {
+    run_ml_intern_fullscreen_script_with_pty(
+        env,
+        &[
+            PtyInputStep::new(
+                "Ready. Enter a prompt or",
+                format!("{first_prompt}\r"),
+                "fullscreen ready banner",
+            ),
+            PtyInputStep::new(
+                first_prompt,
+                format!("{second_prompt}\r"),
+                "fullscreen first history prompt sent",
+            ),
+            PtyInputStep::new(
+                second_prompt,
+                format!("\u{1b}[A\u{1b}[A\u{1b}[B\r/quit\r"),
+                "fullscreen second history prompt sent",
+            ),
+        ],
+    )
+}
+
+#[cfg(unix)]
+fn run_ml_intern_fullscreen_resume_history_with_pty(env: &TestEnv) -> PtyRunOutput {
+    run_ml_intern_fullscreen_script_with_pty(
+        env,
+        &[
+            PtyInputStep::new(
+                "Ready. Enter a prompt or",
+                "/threads\r",
+                "fullscreen ready banner",
+            ),
+            PtyInputStep::new(
+                "resume history prompt",
+                "\r",
+                "fullscreen thread picker opened",
+            ),
+            PtyInputStep::new(
+                "skill payload captured",
+                "\r\u{1b}[A\r/quit\r",
+                "fullscreen thread resumed",
+            ),
+        ],
     )
 }
 

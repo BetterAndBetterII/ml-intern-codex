@@ -18,4 +18,3 @@ pub fn append_markdown(
     );
     crate::render::line_utils::push_owned_lines(&rendered.lines, lines);
 }
-

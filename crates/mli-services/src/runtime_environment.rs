@@ -198,8 +198,12 @@ fn compose_overlay_agents(user_codex_home: &Path, cwd: &Path, paths: &AppPaths) 
 
 fn sync_repo_skill_links(cwd: &Path, bundled_root: &Path, generated_root: &Path) -> Result<()> {
     let repo_skills_root = cwd.join(".agents").join("skills");
-    fs::create_dir_all(&repo_skills_root)
-        .with_context(|| format!("failed to create repo skill root {}", repo_skills_root.display()))?;
+    fs::create_dir_all(&repo_skills_root).with_context(|| {
+        format!(
+            "failed to create repo skill root {}",
+            repo_skills_root.display()
+        )
+    })?;
     sync_linked_skill_dirs(bundled_root, &repo_skills_root)?;
     sync_linked_skill_dirs(generated_root, &repo_skills_root)?;
     Ok(())
@@ -243,7 +247,10 @@ fn sync_skill_link(source: &Path, destination: &Path) -> Result<()> {
         })?;
         if metadata.file_type().is_symlink() {
             fs::remove_file(destination).with_context(|| {
-                format!("failed to replace repo skill symlink {}", destination.display())
+                format!(
+                    "failed to replace repo skill symlink {}",
+                    destination.display()
+                )
             })?;
         } else {
             // Preserve any real repo-managed skill directory/file the user already created.
@@ -271,14 +278,17 @@ fn create_dir_symlink(source: &Path, destination: &Path) -> Result<()> {
 
 #[cfg(not(unix))]
 fn copy_dir_recursive(source: &Path, destination: &Path) -> Result<()> {
-    fs::create_dir_all(destination)
-        .with_context(|| format!("failed to create copied skill dir {}", destination.display()))?;
+    fs::create_dir_all(destination).with_context(|| {
+        format!(
+            "failed to create copied skill dir {}",
+            destination.display()
+        )
+    })?;
     for entry in fs::read_dir(source)
         .with_context(|| format!("failed to read copied skill dir {}", source.display()))?
     {
-        let entry = entry.with_context(|| {
-            format!("failed to iterate copied skill dir {}", source.display())
-        })?;
+        let entry = entry
+            .with_context(|| format!("failed to iterate copied skill dir {}", source.display()))?;
         let source_path = entry.path();
         let destination_path = destination.join(entry.file_name());
         if source_path.is_dir() {
@@ -547,9 +557,15 @@ mod tests {
         assert!(skill.contains("write_paper_report"));
         assert!(skill.contains("write_job_snapshot"));
         assert_eq!(overlay.root, paths.codex_home_dir);
-        assert!(paths.cwd.join(".agents/skills/ml-runtime-conventions").exists());
         assert!(
-            paths.cwd
+            paths
+                .cwd
+                .join(".agents/skills/ml-runtime-conventions")
+                .exists()
+        );
+        assert!(
+            paths
+                .cwd
                 .join(".agents/skills/runtime-artifact-contract")
                 .exists()
         );

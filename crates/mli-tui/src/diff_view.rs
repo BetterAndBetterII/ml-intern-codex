@@ -41,10 +41,7 @@ pub fn render_unified_diff(diff: &str) -> Vec<Line<'static>> {
         } else if raw.starts_with("+++ ") || raw.starts_with("--- ") {
             Line::from(vec![
                 Span::styled("  ", Style::default()),
-                Span::styled(
-                    raw.to_string(),
-                    Style::default().fg(Color::DarkGray),
-                ),
+                Span::styled(raw.to_string(), Style::default().fg(Color::DarkGray)),
             ])
         } else if let Some(hunk) = raw.strip_prefix("@@") {
             // Hunk header: `@@ -1,3 +1,4 @@ context…`
@@ -52,12 +49,11 @@ pub fn render_unified_diff(diff: &str) -> Vec<Line<'static>> {
                 Span::styled("  ", Style::default()),
                 Span::styled(
                     "@@".to_string(),
-                    Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Magenta)
+                        .add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(
-                    hunk.to_string(),
-                    Style::default().fg(Color::Magenta),
-                ),
+                Span::styled(hunk.to_string(), Style::default().fg(Color::Magenta)),
             ])
         } else if let Some(rest) = raw.strip_prefix('+') {
             if rest.starts_with('+') {
@@ -110,15 +106,9 @@ fn diff_header(added: usize, removed: usize) -> Line<'static> {
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw("  "),
-        Span::styled(
-            format!("+{added}"),
-            Style::default().fg(Color::LightGreen),
-        ),
+        Span::styled(format!("+{added}"), Style::default().fg(Color::LightGreen)),
         Span::raw(" "),
-        Span::styled(
-            format!("-{removed}"),
-            Style::default().fg(Color::LightRed),
-        ),
+        Span::styled(format!("-{removed}"), Style::default().fg(Color::LightRed)),
     ])
 }
 
@@ -200,16 +190,12 @@ mod tests {
         let diff = "@@ -1 +1 @@\n-foo\n+bar\n";
         let lines = render_unified_diff(diff);
         // Find the '+' and '-' lines.
-        let plus = lines.iter().find(|l| {
-            l.spans
-                .iter()
-                .any(|s| s.content.contains("bar"))
-        });
-        let minus = lines.iter().find(|l| {
-            l.spans
-                .iter()
-                .any(|s| s.content.contains("foo"))
-        });
+        let plus = lines
+            .iter()
+            .find(|l| l.spans.iter().any(|s| s.content.contains("bar")));
+        let minus = lines
+            .iter()
+            .find(|l| l.spans.iter().any(|s| s.content.contains("foo")));
         assert!(plus.is_some());
         assert!(minus.is_some());
     }

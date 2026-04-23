@@ -24,4 +24,3 @@ pub fn human_time_ago(ts: SystemTime, now: SystemTime) -> String {
 
     format_unit(secs / (60 * 60 * 24), "day")
 }
-

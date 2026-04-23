@@ -44,4 +44,3 @@ fn strip_windows_verbatim_prefix(path_text: String) -> String {
     }
     path_text
 }
-

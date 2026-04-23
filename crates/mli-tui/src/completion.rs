@@ -50,36 +50,60 @@ pub enum CompletionKind {
 pub struct SlashCommand {
     pub name: &'static str,
     pub description: &'static str,
+    pub accept: SlashCommandAccept,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SlashCommandAccept {
+    Submit,
+    Replace(&'static str),
 }
 
 pub const SLASH_COMMANDS: &[SlashCommand] = &[
     SlashCommand {
         name: "/help",
         description: "show keybindings and commands",
+        accept: SlashCommandAccept::Submit,
     },
     SlashCommand {
         name: "/skills",
         description: "pick a skill to apply to the next prompt",
+        accept: SlashCommandAccept::Submit,
     },
     SlashCommand {
         name: "/threads",
         description: "resume a previous thread",
+        accept: SlashCommandAccept::Submit,
     },
     SlashCommand {
         name: "/artifacts",
         description: "browse generated artifacts",
+        accept: SlashCommandAccept::Submit,
     },
     SlashCommand {
         name: "/approval",
         description: "reopen the last approval request",
+        accept: SlashCommandAccept::Submit,
+    },
+    SlashCommand {
+        name: "/yolo",
+        description: "toggle danger-full-access + no approvals",
+        accept: SlashCommandAccept::Submit,
+    },
+    SlashCommand {
+        name: "/mode",
+        description: "set safe | readonly | yolo defaults",
+        accept: SlashCommandAccept::Replace("/mode "),
     },
     SlashCommand {
         name: "/clear",
         description: "clear the in-memory transcript view",
+        accept: SlashCommandAccept::Submit,
     },
     SlashCommand {
         name: "/quit",
         description: "exit ml-intern",
+        accept: SlashCommandAccept::Submit,
     },
 ];
 
@@ -132,10 +156,13 @@ impl Completion {
             }
             CompletionKind::Commands(items) => {
                 let cmd = items.get(idx)?;
-                // Dispatch `/quit` and the like immediately. The full list of
-                // "immediate" commands is whatever `handle_slash` handles
-                // without extra arguments — all current slash commands qualify.
-                Some(AcceptOutcome::Submit(cmd.name.to_string()))
+                match cmd.accept {
+                    SlashCommandAccept::Submit => Some(AcceptOutcome::Submit(cmd.name.to_string())),
+                    SlashCommandAccept::Replace(replacement) => Some(AcceptOutcome::Replace {
+                        replacement: replacement.to_string(),
+                        cursor_offset: replacement.len(),
+                    }),
+                }
             }
         }
     }
@@ -294,7 +321,11 @@ pub fn render(area: Rect, buf: &mut Buffer, popup: &Completion) {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                format!("({} match{})", popup.filtered.len(), if popup.filtered.len() == 1 { "" } else { "es" }),
+                format!(
+                    "({} match{})",
+                    popup.filtered.len(),
+                    if popup.filtered.len() == 1 { "" } else { "es" }
+                ),
                 Style::default().fg(Color::DarkGray),
             ),
         ]));
@@ -320,10 +351,7 @@ pub fn render(area: Rect, buf: &mut Buffer, popup: &Completion) {
                             .fg(Color::Magenta)
                             .add_modifier(Modifier::BOLD),
                     ),
-                    Span::styled(
-                        s.description.clone(),
-                        Style::default().fg(Color::DarkGray),
-                    ),
+                    Span::styled(s.description.clone(), Style::default().fg(Color::DarkGray)),
                 )
             }
             CompletionKind::Commands(items) => {
@@ -352,7 +380,12 @@ pub fn render(area: Rect, buf: &mut Buffer, popup: &Completion) {
             Style::default()
         };
         let marker = Span::styled(
-            if absolute == popup.cursor { "› " } else { "  " }.to_string(),
+            if absolute == popup.cursor {
+                "› "
+            } else {
+                "  "
+            }
+            .to_string(),
             row_style,
         );
         let name_span = Span::styled(name_span.content, name_span.style.patch(row_style));
@@ -415,6 +448,18 @@ mod tests {
     }
 
     #[test]
+    fn command_popup_lists_mode_and_yolo() {
+        let popup = evaluate("/", 1, None, None).expect("popup");
+        let names: Vec<&str> = popup
+            .filtered
+            .iter()
+            .map(|i| SLASH_COMMANDS[*i].name)
+            .collect();
+        assert!(names.contains(&"/mode"));
+        assert!(names.contains(&"/yolo"));
+    }
+
+    #[test]
     fn command_popup_closes_after_space() {
         let popup = evaluate("/skills ", 8, None, None);
         assert!(popup.is_none());
@@ -422,7 +467,10 @@ mod tests {
 
     #[test]
     fn skill_popup_opens_on_dollar_when_cache_present() {
-        let skills = vec![skill("rewrite", "refactor code"), skill("test", "run tests")];
+        let skills = vec![
+            skill("rewrite", "refactor code"),
+            skill("test", "run tests"),
+        ];
         let popup = evaluate("$", 1, Some(&skills), None).expect("popup");
         assert!(matches!(popup.kind, CompletionKind::Skills(_)));
         assert_eq!(popup.filtered.len(), 2);
@@ -473,6 +521,21 @@ mod tests {
         match popup.accept().expect("accept") {
             AcceptOutcome::Submit(cmd) => assert_eq!(cmd, "/help"),
             AcceptOutcome::Replace { .. } => panic!("commands should Submit"),
+        }
+    }
+
+    #[test]
+    fn mode_command_accept_replaces_with_trailing_space() {
+        let popup = evaluate("/mo", 3, None, None).expect("popup");
+        match popup.accept().expect("accept") {
+            AcceptOutcome::Replace {
+                replacement,
+                cursor_offset,
+            } => {
+                assert_eq!(replacement, "/mode ");
+                assert_eq!(cursor_offset, replacement.len());
+            }
+            AcceptOutcome::Submit(_) => panic!("mode should not auto-submit"),
         }
     }
 }

@@ -54,13 +54,20 @@ fn render_user_message(text: &str, width: usize) -> Vec<Line<'static>> {
     let rendered = render_markdown_text_with_width(text, Some(content_width));
     let lines: Vec<Line<'static>> = rendered.lines;
 
-    let prefix = Span::styled("› ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+    let prefix = Span::styled(
+        "› ",
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    );
     let indent = Span::raw("  ");
     let mut out = prefix_lines(lines, prefix, indent);
     if out.is_empty() {
         out.push(Line::from(vec![Span::styled(
             "› ",
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
         )]));
     }
     add_trailing_blank(out)
@@ -71,13 +78,20 @@ fn render_assistant_message(text: &str, width: usize) -> Vec<Line<'static>> {
     let rendered = render_markdown_text_with_width(text, Some(content_width));
     let lines: Vec<Line<'static>> = rendered.lines;
 
-    let bullet = Span::styled("• ", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD));
+    let bullet = Span::styled(
+        "• ",
+        Style::default()
+            .fg(Color::Magenta)
+            .add_modifier(Modifier::BOLD),
+    );
     let indent = Span::raw("  ");
     let mut out = prefix_lines(lines, bullet, indent);
     if out.is_empty() {
         out.push(Line::from(Span::styled(
             "• ",
-            Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Magenta)
+                .add_modifier(Modifier::BOLD),
         )));
     }
     add_trailing_blank(out)
@@ -112,21 +126,35 @@ fn render_approval(approval: &PendingApproval, width: usize) -> Vec<Line<'static
         ApprovalKind::RequestUserInput => "input",
     };
     let mut lines = vec![Line::from(vec![
-        Span::styled("? ", Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "? ",
+            Style::default()
+                .fg(Color::LightYellow)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(
             format!("approval requested ({kind})"),
-            Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::LightYellow)
+                .add_modifier(Modifier::BOLD),
         ),
     ])];
     if !approval.title.is_empty() {
         lines.push(Line::from(vec![
             Span::raw("  "),
-            Span::styled(approval.title.clone(), Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled(
+                approval.title.clone(),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
         ]));
     }
     let content_width = width.saturating_sub(2).max(8);
     let rendered = render_markdown_text_with_width(&approval.description, Some(content_width));
-    lines.extend(prefix_lines(rendered.lines, Span::raw("  "), Span::raw("  ")));
+    lines.extend(prefix_lines(
+        rendered.lines,
+        Span::raw("  "),
+        Span::raw("  "),
+    ));
     add_trailing_blank(lines)
 }
 
@@ -143,7 +171,12 @@ fn render_artifact(
     };
     vec![
         Line::from(vec![
-            Span::styled("◆ ", Style::default().fg(Color::LightMagenta).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "◆ ",
+                Style::default()
+                    .fg(Color::LightMagenta)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(verb.to_string(), Style::default().fg(Color::LightMagenta)),
             Span::raw("  "),
             Span::styled(title, Style::default().add_modifier(Modifier::BOLD)),
@@ -173,7 +206,10 @@ fn render_prefixed_markdown(
     let content_width = width.saturating_sub(LIVE_PREFIX_COLS).max(8);
     let rendered = render_markdown_text_with_width(text, Some(content_width));
     let lines = rendered.lines;
-    let prefix_span = Span::styled(prefix.to_string(), Style::default().fg(color).add_modifier(Modifier::BOLD));
+    let prefix_span = Span::styled(
+        prefix.to_string(),
+        Style::default().fg(color).add_modifier(Modifier::BOLD),
+    );
     let indent = Span::raw("  ");
     let mut out = prefix_lines(lines, prefix_span, indent);
     if out.is_empty() {

@@ -12,9 +12,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use crossterm::event::{
-    self, Event as CEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
-};
+use crossterm::event::{self, Event as CEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use mli_protocol::ServerNotification;
 use mli_types::{ConnectionState, HistoryCellModel};
 use ratatui::backend::Backend;
@@ -93,6 +91,8 @@ struct StreamingExecCtx {
     total_output_lines: usize,
 }
 
+const MAX_PROMPT_HISTORY: usize = 200;
+
 impl InlineApp {
     fn new(terminal: &mut Terminal, core: TranscriptApp) -> Result<Self> {
         let last_connection = core.state().connection;
@@ -115,6 +115,7 @@ impl InlineApp {
             streaming_exec: None,
         };
         me.refresh_selected_skill_label();
+        me.sync_prompt_history_from_transcript();
         // Must size the viewport before the first history flush so wrap_width is correct.
         me.resize_viewport(terminal)?;
         me.render_startup_banner(terminal)?;
@@ -520,10 +521,7 @@ impl InlineApp {
     ) -> Result<()> {
         ctx.total_output_lines += 1;
         if ctx.head_lines_pushed < exec_render::OUTPUT_KEEP_LINES {
-            let rendered = exec_render::prefix_output_line(
-                line,
-                ctx.head_lines_pushed == 0,
-            );
+            let rendered = exec_render::prefix_output_line(line, ctx.head_lines_pushed == 0);
             insert_history_lines(terminal, vec![rendered])?;
             ctx.head_lines_pushed += 1;
             return Ok(());
@@ -815,7 +813,10 @@ impl InlineApp {
                 let anchor = popup.anchor_byte;
                 let end = popup.token_end_byte;
                 let state = self.core.state_mut();
-                state.composer.buffer.replace_range(anchor..end, &replacement);
+                state
+                    .composer
+                    .buffer
+                    .replace_range(anchor..end, &replacement);
                 state.composer.cursor = anchor + cursor_offset;
                 self.completion = None;
             }
@@ -845,8 +846,8 @@ impl InlineApp {
         // Detect what the trigger would be, so we know whether we need skill
         // data before evaluating.
         let leading = buffer.as_bytes().first().copied();
-        let cursor_in_first_token = cursor > 0
-            && buffer[..cursor].find(char::is_whitespace).is_none();
+        let cursor_in_first_token =
+            cursor > 0 && buffer[..cursor].find(char::is_whitespace).is_none();
         let needs_skills = matches!(leading, Some(b'$')) && cursor_in_first_token;
         if needs_skills && self.skills_cache.is_none() {
             // Lazily fetch skills once. Failures are silently ignored — the
@@ -881,7 +882,10 @@ impl InlineApp {
             return;
         }
         let prev_boundary = prev_char_boundary(&state.composer.buffer, state.composer.cursor);
-        state.composer.buffer.drain(prev_boundary..state.composer.cursor);
+        state
+            .composer
+            .buffer
+            .drain(prev_boundary..state.composer.cursor);
         state.composer.cursor = prev_boundary;
     }
 
@@ -891,7 +895,10 @@ impl InlineApp {
             return;
         }
         let next_boundary = next_char_boundary(&state.composer.buffer, state.composer.cursor);
-        state.composer.buffer.drain(state.composer.cursor..next_boundary);
+        state
+            .composer
+            .buffer
+            .drain(state.composer.cursor..next_boundary);
     }
 
     fn delete_word_backward(&mut self) {
@@ -1019,7 +1026,9 @@ impl InlineApp {
     }
 
     fn history_next(&mut self) {
-        let Some(idx) = self.history_cursor else { return };
+        let Some(idx) = self.history_cursor else {
+            return;
+        };
         if idx + 1 >= self.prompt_history.len() {
             // Past the newest entry: restore draft and exit history mode.
             let draft = self.history_draft.take().unwrap_or_default();
@@ -1046,25 +1055,13 @@ impl InlineApp {
         self.history_draft = None;
     }
 
+    fn sync_prompt_history_from_transcript(&mut self) {
+        self.prompt_history = collect_prompt_history(&self.core.state().transcript.history);
+        self.reset_history_nav();
+    }
+
     fn push_history_entry(&mut self, text: &str) {
-        let trimmed = text.trim();
-        if trimmed.is_empty() {
-            return;
-        }
-        if self
-            .prompt_history
-            .last()
-            .map(|last| last == trimmed)
-            .unwrap_or(false)
-        {
-            return;
-        }
-        self.prompt_history.push(trimmed.to_string());
-        const MAX: usize = 200;
-        if self.prompt_history.len() > MAX {
-            let drop = self.prompt_history.len() - MAX;
-            self.prompt_history.drain(..drop);
-        }
+        push_prompt_history_entry(&mut self.prompt_history, text);
     }
 
     fn submit_composer(&mut self, terminal: &mut Terminal) -> Result<()> {
@@ -1120,9 +1117,7 @@ impl InlineApp {
             other if other.starts_with("/mode") => {
                 self.core.set_mode_command(other)?;
             }
-            other => self
-                .core
-                .push_warning(&format!("Unknown command: {other}")),
+            other => self.core.push_warning(&format!("Unknown command: {other}")),
         }
         Ok(())
     }
@@ -1204,11 +1199,9 @@ impl InlineApp {
             }
             OverlayOutcome::ResumeThread(thread_id) => {
                 self.overlay = None;
-                match self
-                    .core
-                    .resume_thread_into_view_no_follow(thread_id)
-                {
+                match self.core.resume_thread_into_view_no_follow(thread_id) {
                     Ok(_) => {
+                        self.sync_prompt_history_from_transcript();
                         // Transcript was replaced; reset rendered counter and let
                         // flush push the full transcript into scrollback.
                         self.rendered_cells = 0;
@@ -1293,6 +1286,31 @@ fn next_word_boundary(buffer: &str, cursor: usize) -> usize {
     idx
 }
 
+fn collect_prompt_history(history: &[HistoryCellModel]) -> Vec<String> {
+    let mut prompts = Vec::new();
+    for cell in history {
+        if let HistoryCellModel::UserMessage(user) = cell {
+            push_prompt_history_entry(&mut prompts, &user.text);
+        }
+    }
+    prompts
+}
+
+fn push_prompt_history_entry(history: &mut Vec<String>, text: &str) {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    if history.last().map(|last| last == trimmed).unwrap_or(false) {
+        return;
+    }
+    history.push(trimmed.to_string());
+    if history.len() > MAX_PROMPT_HISTORY {
+        let drop = history.len() - MAX_PROMPT_HISTORY;
+        history.drain(..drop);
+    }
+}
+
 fn is_word_char(ch: char) -> bool {
     ch.is_alphanumeric() || ch == '_'
 }
@@ -1307,7 +1325,10 @@ fn prev_line_cursor(buffer: &str, cursor: usize) -> Option<usize> {
     }
     let col = cursor - line_start;
     let prev_line_end = line_start - 1; // position of the '\n'
-    let prev_line_start = buffer[..prev_line_end].rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let prev_line_start = buffer[..prev_line_end]
+        .rfind('\n')
+        .map(|i| i + 1)
+        .unwrap_or(0);
     let prev_line_len = prev_line_end - prev_line_start;
     let target = prev_line_start + col.min(prev_line_len);
     Some(snap_to_boundary(buffer, target))
@@ -1342,4 +1363,64 @@ fn snap_to_boundary(buffer: &str, mut idx: usize) -> usize {
 #[allow(dead_code)]
 fn _io_guard() -> io::Result<()> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MAX_PROMPT_HISTORY, collect_prompt_history, push_prompt_history_entry};
+    use mli_types::{AssistantMessageCell, ErrorCell, HistoryCellModel, UserMessageCell};
+
+    #[test]
+    fn collect_prompt_history_uses_only_user_messages() {
+        let history = vec![
+            HistoryCellModel::AssistantMessage(AssistantMessageCell {
+                text: "hello".into(),
+                streaming: false,
+            }),
+            HistoryCellModel::UserMessage(UserMessageCell {
+                text: " first prompt ".into(),
+            }),
+            HistoryCellModel::Error(ErrorCell {
+                message: "warning".into(),
+            }),
+            HistoryCellModel::UserMessage(UserMessageCell {
+                text: "second prompt".into(),
+            }),
+        ];
+
+        assert_eq!(
+            collect_prompt_history(&history),
+            vec!["first prompt".to_string(), "second prompt".to_string()]
+        );
+    }
+
+    #[test]
+    fn collect_prompt_history_dedupes_adjacent_entries_and_caps_length() {
+        let mut history = Vec::new();
+        for _ in 0..3 {
+            history.push(HistoryCellModel::UserMessage(UserMessageCell {
+                text: "same prompt".into(),
+            }));
+        }
+        for idx in 0..(MAX_PROMPT_HISTORY + 5) {
+            history.push(HistoryCellModel::UserMessage(UserMessageCell {
+                text: format!("prompt {idx}"),
+            }));
+        }
+
+        let prompts = collect_prompt_history(&history);
+        assert_eq!(prompts.first().map(String::as_str), Some("prompt 5"));
+        assert_eq!(
+            prompts.last().map(String::as_str),
+            Some(format!("prompt {}", MAX_PROMPT_HISTORY + 4).as_str())
+        );
+        assert_eq!(prompts.len(), MAX_PROMPT_HISTORY);
+    }
+
+    #[test]
+    fn push_prompt_history_entry_ignores_blank_entries() {
+        let mut history = vec!["existing".to_string()];
+        push_prompt_history_entry(&mut history, "   ");
+        assert_eq!(history, vec!["existing".to_string()]);
+    }
 }
