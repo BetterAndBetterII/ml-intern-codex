@@ -44,6 +44,9 @@ use ratatui::style::Modifier;
 use ratatui::widgets::WidgetRef;
 use unicode_width::UnicodeWidthStr;
 
+const FALLBACK_TERMINAL_WIDTH: u16 = 80;
+const FALLBACK_TERMINAL_HEIGHT: u16 = 24;
+
 /// Returns the display width of a cell symbol, ignoring OSC escape sequences.
 ///
 /// OSC sequences (e.g. OSC 8 hyperlinks: `\x1B]8;;URL\x07`) are terminal
@@ -178,14 +181,12 @@ where
     B: Write,
 {
     /// Creates a new [`Terminal`] with the given [`Backend`] and [`TerminalOptions`].
-    pub fn with_options(mut backend: B) -> io::Result<Self> {
-        let screen_size = backend.size()?;
-        let cursor_pos = backend.get_cursor_position().unwrap_or_else(|err| {
-            // Some PTYs do not answer CPR (`ESC[6n`); continue with a safe default instead
-            // of failing TUI startup.
-            tracing::warn!("failed to read initial cursor position; defaulting to origin: {err}");
-            Position { x: 0, y: 0 }
-        });
+    pub fn with_options(backend: B) -> io::Result<Self> {
+        let screen_size = normalized_screen_size(backend.size()?);
+        // Avoid querying CPR (`ESC[6n`) at startup. Some PTYs and terminal wrappers used in
+        // smoke tests never answer and can block the whole TUI before the first frame renders.
+        // We only need a stable inline viewport origin, so a safe top-left default works.
+        let cursor_pos = Position { x: 0, y: 0 };
         Ok(Self {
             backend,
             buffers: [Buffer::empty(Rect::ZERO), Buffer::empty(Rect::ZERO)],
@@ -437,8 +438,23 @@ where
 
     /// Queries the real size of the backend.
     pub fn size(&self) -> io::Result<Size> {
-        self.backend.size()
+        self.backend.size().map(normalized_screen_size)
     }
+}
+
+fn normalized_screen_size(size: Size) -> Size {
+    Size::new(
+        if size.width == 0 {
+            FALLBACK_TERMINAL_WIDTH
+        } else {
+            size.width
+        },
+        if size.height == 0 {
+            FALLBACK_TERMINAL_HEIGHT
+        } else {
+            size.height
+        },
+    )
 }
 
 use ratatui::buffer::Cell;
@@ -651,4 +667,3 @@ impl ModifierDiff {
         Ok(())
     }
 }
-

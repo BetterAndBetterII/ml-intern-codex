@@ -454,7 +454,15 @@ where
             return;
         }
         self.line_ends_with_local_link_target = false;
-        self.push_line(Line::default());
+        let has_content = self
+            .current_line_content
+            .as_ref()
+            .map(|line| !line.spans.is_empty())
+            .unwrap_or(false);
+        if has_content {
+            let style = self.inline_styles.last().copied().unwrap_or_default();
+            self.push_span(Span::styled(" ".to_owned(), style));
+        }
     }
 
     fn start_list(&mut self, index: Option<u64>) {
@@ -967,3 +975,32 @@ fn display_local_link_path(path_text: &str, cwd: Option<&Path>) -> String {
 // Upstream CodexPotter ships a sibling `markdown_render_tests.rs` snapshot file;
 // we didn't port those tests, so the `mod` is intentionally omitted here.
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rendered_lines(text: &str, width: Option<usize>) -> Vec<String> {
+        render_markdown_text_with_width(text, width)
+            .lines
+            .into_iter()
+            .map(|line| {
+                line.spans
+                    .into_iter()
+                    .map(|span| span.content.to_string())
+                    .collect::<String>()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn soft_breaks_render_as_spaces_inside_paragraphs() {
+        let lines = rendered_lines("first line\nsecond line", Some(80));
+        assert_eq!(lines, vec!["first line second line"]);
+    }
+
+    #[test]
+    fn hard_breaks_still_render_as_separate_lines() {
+        let lines = rendered_lines("first line  \nsecond line", Some(80));
+        assert_eq!(lines, vec!["first line", "second line"]);
+    }
+}

@@ -12,6 +12,7 @@ path = "src/lib.rs"
 anyhow.workspace = true
 crossterm.workspace = true
 dirs.workspace = true
+mli-config.workspace = true
 mli-protocol.workspace = true
 mli-runtime.workspace = true
 mli-types.workspace = true

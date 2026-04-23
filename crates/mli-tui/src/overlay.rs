@@ -211,6 +211,8 @@ fn render_help(area: Rect, buf: &mut Buffer) {
         Line::from("  /threads    resume a thread"),
         Line::from("  /artifacts  browse artifacts"),
         Line::from("  /approval   retry a deferred approval"),
+        Line::from("  /yolo       toggle danger-full-access + no approvals"),
+        Line::from("  /mode       set safe | readonly | yolo defaults"),
         Line::from("  /clear      clear the transcript"),
         Line::from("  /help       this help"),
         Line::from("  /quit       exit"),

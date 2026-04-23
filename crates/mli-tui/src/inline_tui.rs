@@ -123,7 +123,7 @@ impl InlineApp {
     }
 
     fn render_startup_banner(&mut self, terminal: &mut Terminal) -> Result<()> {
-        let screen = terminal.backend().size()?;
+        let screen = terminal.size()?;
         let width = terminal.viewport_area.width.max(screen.width);
         if width == 0 {
             return Ok(());
@@ -273,7 +273,7 @@ impl InlineApp {
     /// one logical line at a time so the transcript reflects the response as it
     /// arrives, rather than waiting for turn completion.
     fn flush_new_history(&mut self, terminal: &mut Terminal) -> Result<()> {
-        let screen = terminal.backend().size()?;
+        let screen = terminal.size()?;
         let width = terminal.viewport_area.width.max(screen.width);
         if width == 0 {
             return Ok(());
@@ -580,7 +580,7 @@ impl InlineApp {
     }
 
     fn resize_viewport(&mut self, terminal: &mut Terminal) -> Result<()> {
-        let screen = terminal.backend().size()?;
+        let screen = terminal.size()?;
         if screen.width == 0 || screen.height == 0 {
             return Ok(());
         }
@@ -1113,6 +1113,12 @@ impl InlineApp {
                 } else {
                     self.toast = Some("no pending approval".into());
                 }
+            }
+            "/yolo" => {
+                self.core.toggle_yolo_mode()?;
+            }
+            other if other.starts_with("/mode") => {
+                self.core.set_mode_command(other)?;
             }
             other => self
                 .core

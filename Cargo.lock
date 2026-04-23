@@ -966,6 +966,7 @@ dependencies = [
  "anyhow",
  "crossterm",
  "dirs",
+ "mli-config",
  "mli-protocol",
  "mli-runtime",
  "mli-types",

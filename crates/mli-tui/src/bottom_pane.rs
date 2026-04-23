@@ -177,6 +177,19 @@ fn render_status(area: Rect, buf: &mut Buffer, props: &BottomPaneProps) {
             Style::default().fg(Color::DarkGray),
         ));
     }
+    if matches!(
+        (props.approval_policy, props.sandbox_mode),
+        (Some(ApprovalPolicy::Never), Some(SandboxMode::DangerFullAccess))
+    ) {
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled(
+            "YOLO".to_string(),
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::LightRed)
+                .add_modifier(Modifier::BOLD),
+        ));
+    }
     Paragraph::new(Line::from(spans)).render(area, buf);
 }
 

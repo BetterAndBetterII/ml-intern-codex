@@ -196,6 +196,10 @@ impl AppServer {
                     )
                 })?;
                 self.config = config.clone();
+                self.runtime
+                    .lock()
+                    .map_err(|_| anyhow!("runtime mutex poisoned"))?
+                    .update_config(config.clone());
                 self.write_response(
                     request.id,
                     &mli_protocol::ConfigWriteResult {

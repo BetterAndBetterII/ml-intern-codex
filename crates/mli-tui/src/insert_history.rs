@@ -63,7 +63,7 @@ pub fn insert_history_lines<B>(
 where
     B: Backend<Error = io::Error> + Write,
 {
-    let screen_size = terminal.backend().size().unwrap_or(Size::new(0, 0));
+    let screen_size = terminal.size().unwrap_or(Size::new(80, 24));
 
     let mut area = terminal.viewport_area;
     let mut should_update_area = false;
@@ -344,4 +344,3 @@ where
         SetAttribute(crossterm::style::Attribute::Reset),
     )
 }
-

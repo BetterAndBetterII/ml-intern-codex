@@ -122,6 +122,14 @@ impl<B: CodexBridge> RuntimeSession<B> {
         }
     }
 
+    pub fn update_config(&mut self, config: AppConfig) {
+        self.environment_service =
+            LocalRuntimeEnvironmentService::new(config.clone(), self.paths.clone());
+        self.thread_service = LocalThreadService::new(config.clone(), self.paths.clone());
+        self.skill_service = LocalSkillService::new(config.clone(), self.paths.clone());
+        self.config = config;
+    }
+
     pub fn initialize(&mut self, _params: InitializeParams) -> Result<InitializeResult> {
         let codex_version = self.environment_service.validate_codex_version()?;
         let codex_bin = self.environment_service.resolve_codex_bin()?;

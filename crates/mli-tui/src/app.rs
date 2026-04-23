@@ -10,17 +10,20 @@ use std::thread;
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
+use mli_config::AppConfig;
 use mli_protocol::{
     ApprovalAnswer, ApprovalDecision, ApprovalRespondParams, ArtifactListParams,
-    ArtifactReadParams, JsonRpcMessage, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
-    RequestId, ServerNotification, SkillsListParams, ThreadReadParams, ThreadResumeParams,
-    ThreadStartParams, TurnInterruptParams, TurnStartParams, UserInput,
+    ArtifactReadParams, ConfigReadResult, ConfigWriteParams, ConfigWriteResult, JsonRpcMessage,
+    JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, RequestId, ServerNotification,
+    SkillsListParams, ThreadReadParams, ThreadResumeParams, ThreadStartParams,
+    TurnInterruptParams, TurnStartParams, UserInput,
 };
 use mli_runtime::default_initialize_params;
 use mli_types::{
     AppState, ApprovalCell, ApprovalKind, ArtifactEventCell, ArtifactFilePayload, ArtifactManifest,
-    ArtifactPreview, AssistantMessageCell, ComposerState, ConnectionState, ErrorCell,
-    HistoryCellModel, SkillDescriptor, StatusCell, ThreadListItem, UserMessageCell, WarningCell,
+    ArtifactPreview, AssistantMessageCell, ApprovalPolicy, ComposerState, ConnectionState,
+    ErrorCell, HistoryCellModel, SandboxMode, SkillDescriptor, StatusCell, ThreadListItem,
+    UserMessageCell, WarningCell,
 };
 
 use crate::renderer::render_app;
@@ -292,13 +295,15 @@ impl TranscriptApp {
     fn handle_command(&mut self, command: &str) -> Result<()> {
         match command {
             "/help" => {
-                self.push_status("/threads 列线程并恢复；输入 `$` 或 `/skills` 选技能；/artifacts 浏览 artifacts；/approval 重试 pending approval；/clear 清屏；/quit 退出");
+                self.push_status("/threads 列线程并恢复；输入 `$` 或 `/skills` 选技能；/artifacts 浏览 artifacts；/approval 重试 pending approval；/yolo 切换 YOLO；/mode safe|readonly|yolo；/clear 清屏；/quit 退出");
             }
             "/clear" => self.state.transcript.history.clear(),
             "/threads" => self.pick_thread()?,
             "/skills" => self.pick_skill()?,
             "/artifacts" => self.browse_artifacts()?,
             "/approval" => self.retry_pending_approval()?,
+            "/yolo" => self.toggle_yolo_mode()?,
+            other if other.starts_with("/mode") => self.set_mode_command(other)?,
             other => self.push_warning(&format!("Unknown command: {other}")),
         }
         Ok(())
@@ -1129,6 +1134,91 @@ impl TranscriptApp {
             },
         )?;
         Ok(result.artifacts)
+    }
+
+    fn request_config(&mut self) -> Result<AppConfig> {
+        let result: ConfigReadResult = self
+            .client
+            .request("config/read", &serde_json::json!({}))?;
+        serde_json::from_value(result.config).context("failed to decode app config")
+    }
+
+    fn write_config(&mut self, config: &AppConfig) -> Result<AppConfig> {
+        let result: ConfigWriteResult = self.client.request(
+            "config/write",
+            &ConfigWriteParams {
+                config: serde_json::to_value(config)
+                    .context("failed to encode config for write")?,
+            },
+        )?;
+        serde_json::from_value(result.config).context("failed to decode written app config")
+    }
+
+    fn apply_mode_to_banner(&mut self, approval_policy: ApprovalPolicy, sandbox_mode: SandboxMode) {
+        self.state.runtime.approval_policy = Some(approval_policy);
+        self.state.runtime.sandbox_mode = Some(sandbox_mode);
+    }
+
+    fn set_mode(&mut self, approval_policy: ApprovalPolicy, sandbox_mode: SandboxMode) -> Result<()> {
+        let mut config = self.request_config()?;
+        config.codex.approval_policy = approval_policy;
+        config.codex.sandbox_mode = sandbox_mode;
+        let persisted = self.write_config(&config)?;
+        self.apply_mode_to_banner(
+            persisted.codex.approval_policy,
+            persisted.codex.sandbox_mode,
+        );
+        let mode_label = runtime_mode_label(approval_policy, sandbox_mode);
+        self.push_status(&format!(
+            "Default mode set to {mode_label} for new threads ({}/{})",
+            approval_policy_label(approval_policy),
+            sandbox_mode_label(sandbox_mode)
+        ));
+        Ok(())
+    }
+
+    pub(crate) fn toggle_yolo_mode(&mut self) -> Result<()> {
+        let current_policy = self
+            .state
+            .runtime
+            .approval_policy
+            .unwrap_or(ApprovalPolicy::OnRequest);
+        let current_sandbox = self
+            .state
+            .runtime
+            .sandbox_mode
+            .unwrap_or(SandboxMode::WorkspaceWrite);
+        if is_yolo_mode(current_policy, current_sandbox) {
+            self.set_mode(ApprovalPolicy::OnRequest, SandboxMode::WorkspaceWrite)
+        } else {
+            self.set_mode(ApprovalPolicy::Never, SandboxMode::DangerFullAccess)
+        }
+    }
+
+    pub(crate) fn set_mode_command(&mut self, command: &str) -> Result<()> {
+        let mut parts = command.split_whitespace();
+        let _ = parts.next();
+        let Some(mode) = parts.next() else {
+            self.push_warning("Usage: /mode safe | /mode readonly | /mode yolo");
+            return Ok(());
+        };
+        if parts.next().is_some() {
+            self.push_warning("Usage: /mode safe | /mode readonly | /mode yolo");
+            return Ok(());
+        }
+        match mode {
+            "safe" => self.set_mode(ApprovalPolicy::OnRequest, SandboxMode::WorkspaceWrite),
+            "readonly" | "read-only" => {
+                self.set_mode(ApprovalPolicy::OnRequest, SandboxMode::ReadOnly)
+            }
+            "yolo" => self.set_mode(ApprovalPolicy::Never, SandboxMode::DangerFullAccess),
+            other => {
+                self.push_warning(&format!(
+                    "Unknown mode `{other}`. Use: safe, readonly, yolo"
+                ));
+                Ok(())
+            }
+        }
     }
 
     #[allow(dead_code)] // used by forthcoming artifact viewer overlay
@@ -2415,6 +2505,37 @@ fn print_artifact_file(file: &ArtifactFilePayload) {
     }
 }
 
+fn is_yolo_mode(approval_policy: ApprovalPolicy, sandbox_mode: SandboxMode) -> bool {
+    approval_policy == ApprovalPolicy::Never && sandbox_mode == SandboxMode::DangerFullAccess
+}
+
+fn runtime_mode_label(approval_policy: ApprovalPolicy, sandbox_mode: SandboxMode) -> &'static str {
+    if is_yolo_mode(approval_policy, sandbox_mode) {
+        "yolo"
+    } else if sandbox_mode == SandboxMode::ReadOnly {
+        "readonly"
+    } else {
+        "safe"
+    }
+}
+
+fn approval_policy_label(policy: ApprovalPolicy) -> &'static str {
+    match policy {
+        ApprovalPolicy::Never => "never",
+        ApprovalPolicy::OnFailure => "on-failure",
+        ApprovalPolicy::OnRequest => "on-request",
+        ApprovalPolicy::Untrusted => "untrusted",
+    }
+}
+
+fn sandbox_mode_label(mode: SandboxMode) -> &'static str {
+    match mode {
+        SandboxMode::ReadOnly => "read-only",
+        SandboxMode::WorkspaceWrite => "workspace-write",
+        SandboxMode::DangerFullAccess => "danger-full-access",
+    }
+}
+
 fn restored_active_turn_id(turns: &[mli_types::TurnRecord]) -> Option<mli_types::LocalTurnId> {
     turns.iter().rev().find_map(|turn| {
         matches!(
@@ -2444,11 +2565,13 @@ mod tests {
         restore_artifact_event, restored_active_turn_id,
     };
     use mli_protocol::{
-        AgentMessageDeltaNotification, ApprovalDecision, ApprovalRespondParams,
+        AgentMessageDeltaNotification, ApprovalDecision, ApprovalRespondParams, ConfigReadResult,
+        ConfigWriteResult,
         ArtifactUpdatedNotification, JsonRpcError, JsonRpcErrorPayload, JsonRpcNotification,
         JsonRpcResponse, RequestId, ServerNotification, ThreadReadResult,
         TurnCompletedNotification,
     };
+    use mli_config::AppConfig;
     use mli_types::{
         AppState, ApprovalKind, ApprovalPolicy, ArtifactFilePayload, ArtifactId, ArtifactKind,
         ArtifactManifest, ArtifactPreview, ArtifactReadBundle, AssistantMessageCell,
@@ -2548,6 +2671,86 @@ mod tests {
 
         assert!(frame.starts_with("\u{1b}[2J\u{1b}[H"));
         assert!(frame.contains("you> hello"));
+    }
+
+    #[test]
+    fn toggle_yolo_mode_updates_runtime_defaults() {
+        let mut config = AppConfig::default();
+        let written = {
+            config.codex.approval_policy = ApprovalPolicy::Never;
+            config.codex.sandbox_mode = SandboxMode::DangerFullAccess;
+            config.clone()
+        };
+        let client = test_client_with_messages(vec![
+            ClientMessage::Response(JsonRpcResponse {
+                id: RequestId::Integer(1),
+                result: serde_json::to_value(ConfigReadResult {
+                    config: serde_json::to_value(AppConfig::default())
+                        .unwrap_or_else(|error| panic!("encode default config: {error}")),
+                })
+                .unwrap_or_else(|error| panic!("encode config/read result: {error}")),
+            }),
+            ClientMessage::Response(JsonRpcResponse {
+                id: RequestId::Integer(2),
+                result: serde_json::to_value(ConfigWriteResult {
+                    config: serde_json::to_value(written.clone())
+                        .unwrap_or_else(|error| panic!("encode written config: {error}")),
+                })
+                .unwrap_or_else(|error| panic!("encode config/write result: {error}")),
+            }),
+        ]);
+        let mut app = TranscriptApp::new(client);
+        app.state.runtime.approval_policy = Some(ApprovalPolicy::OnRequest);
+        app.state.runtime.sandbox_mode = Some(SandboxMode::WorkspaceWrite);
+
+        app.toggle_yolo_mode()
+            .unwrap_or_else(|error| panic!("toggle yolo mode: {error}"));
+
+        assert_eq!(app.state.runtime.approval_policy, Some(ApprovalPolicy::Never));
+        assert_eq!(
+            app.state.runtime.sandbox_mode,
+            Some(SandboxMode::DangerFullAccess)
+        );
+        assert!(matches!(
+            app.state.transcript.history.last(),
+            Some(HistoryCellModel::Status(cell))
+                if cell.message.contains("Default mode set to yolo")
+        ));
+    }
+
+    #[test]
+    fn mode_command_supports_readonly() {
+        let mut config = AppConfig::default();
+        let written = {
+            config.codex.approval_policy = ApprovalPolicy::OnRequest;
+            config.codex.sandbox_mode = SandboxMode::ReadOnly;
+            config.clone()
+        };
+        let client = test_client_with_messages(vec![
+            ClientMessage::Response(JsonRpcResponse {
+                id: RequestId::Integer(1),
+                result: serde_json::to_value(ConfigReadResult {
+                    config: serde_json::to_value(AppConfig::default())
+                        .unwrap_or_else(|error| panic!("encode default config: {error}")),
+                })
+                .unwrap_or_else(|error| panic!("encode config/read result: {error}")),
+            }),
+            ClientMessage::Response(JsonRpcResponse {
+                id: RequestId::Integer(2),
+                result: serde_json::to_value(ConfigWriteResult {
+                    config: serde_json::to_value(written.clone())
+                        .unwrap_or_else(|error| panic!("encode written config: {error}")),
+                })
+                .unwrap_or_else(|error| panic!("encode config/write result: {error}")),
+            }),
+        ]);
+        let mut app = TranscriptApp::new(client);
+
+        app.set_mode_command("/mode readonly")
+            .unwrap_or_else(|error| panic!("set readonly mode: {error}"));
+
+        assert_eq!(app.state.runtime.approval_policy, Some(ApprovalPolicy::OnRequest));
+        assert_eq!(app.state.runtime.sandbox_mode, Some(SandboxMode::ReadOnly));
     }
 
     #[test]

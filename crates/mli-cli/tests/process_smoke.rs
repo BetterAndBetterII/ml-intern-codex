@@ -484,8 +484,8 @@ fn ml_intern_skills_picker_smoke_selects_skill_and_forwards_turn_payload() {
 
     assert!(stdout.contains("Filter skills (blank for all, q to cancel):"));
     assert!(stdout.contains("Skills:"));
-    assert!(stdout.contains("ml-runtime-conventions [bundled]"));
-    assert!(stdout.contains("Selected skill: ml-runtime-conventions [bundled]"));
+    assert!(stdout.contains("ml-runtime-conventions [repo]"));
+    assert!(stdout.contains("Selected skill: ml-runtime-conventions [repo]"));
     assert!(stdout.contains("assistant> skill payload captured"));
 
     let capture_lines = env.read_capture_lines();
@@ -502,7 +502,10 @@ fn ml_intern_skills_picker_smoke_selects_skill_and_forwards_turn_payload() {
     assert!(
         input[0]["path"]
             .as_str()
-            .is_some_and(|path| path.ends_with("skills/system/ml-runtime-conventions/SKILL.md"))
+            .is_some_and(|path| {
+                path.ends_with(".agents/skills/ml-runtime-conventions/SKILL.md")
+                    || path.ends_with("skills/system/ml-runtime-conventions/SKILL.md")
+            })
     );
     assert_eq!(
         input[1],
@@ -559,11 +562,9 @@ fn ml_intern_fullscreen_startup_smoke_renders_event_driven_layout() {
         "ml-intern PTY fullscreen smoke failed:\n{}",
         output.output
     );
-    assert!(output.output.contains("Session"));
-    assert!(output.output.contains("Transcript"));
-    assert!(output.output.contains("Composer"));
-    assert!(output.output.contains("Ready. Enter a prompt or"));
-    assert!(output.output.contains("use /help."));
+    assert!(output.output.contains("compose"));
+    assert!(output.output.contains("type a prompt"));
+    assert!(output.output.contains("v0.1.0"));
 }
 
 #[cfg(unix)]
@@ -630,7 +631,10 @@ fn ml_intern_fullscreen_skill_picker_overlay_smoke_selects_skill_and_forwards_tu
     assert!(
         input[0]["path"]
             .as_str()
-            .is_some_and(|path| path.ends_with("skills/system/ml-runtime-conventions/SKILL.md"))
+            .is_some_and(|path| {
+                path.ends_with(".agents/skills/ml-runtime-conventions/SKILL.md")
+                    || path.ends_with("skills/system/ml-runtime-conventions/SKILL.md")
+            })
     );
     assert_eq!(
         input[1],
@@ -1771,21 +1775,22 @@ fn wait_for_fullscreen_output(
     let deadline = Instant::now() + timeout;
     loop {
         let rendered = fullscreen_snapshot(stdout_log);
-        if rendered.contains(pattern) {
+        let raw = bytes_snapshot(stdout_log);
+        if rendered.contains(pattern) || raw.contains(pattern) {
             return;
         }
         match child.try_wait() {
             Ok(Some(status)) => panic!(
                 "PTY smoke exited early while waiting for {label} ({status})\n--- RENDERED PTY ---\n{}\n--- RAW PTY ---\n{}\n--- SCRIPT STDERR ---\n{}",
                 rendered,
-                bytes_snapshot(stdout_log),
+                raw,
                 bytes_snapshot(stderr_log)
             ),
             Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(50)),
             Ok(None) => panic!(
                 "timed out waiting for {label}\n--- RENDERED PTY ---\n{}\n--- RAW PTY ---\n{}\n--- SCRIPT STDERR ---\n{}",
                 rendered,
-                bytes_snapshot(stdout_log),
+                raw,
                 bytes_snapshot(stderr_log)
             ),
             Err(error) => {
